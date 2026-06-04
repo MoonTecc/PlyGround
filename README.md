@@ -8,8 +8,8 @@ So, Ther are few updates planned like:
 2. Basic Upgrade: 2 - Complete
 3. Basic Upgrade: 3 - Complete
 4. UI Update - Complete
-6. Lights update
-7. Electronic Update
+5. Electronic Update
+6. UniCode Update
 
 I will try Updating ;) Have Fun
 
