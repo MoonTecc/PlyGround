@@ -845,58 +845,122 @@ document.addEventListener("keydown", e => {
 });
 
 
-// --- EXPLOSION FUNCTION ---
+// --- 💥 REVAMPED EXPLOSION FUNCTION ---
 function explodeTNT(tnt) {
   const x = tnt.position.x;
   const y = tnt.position.y;
-  const radius = 300; // Bigger blast radius
+  const radius = 300;
 
-  // 💥 Stronger visual shockwave
-  for (let i = 0; i < 25; i++) {
-    createFireCluster(x, y, 1.8);
-  }
+  // Remove TNT body first
+  World.remove(world, tnt);
+  spawnedBodies = spawnedBodies.filter(b => b !== tnt);
+  spawnedTNTs   = spawnedTNTs.filter(b => b !== tnt);
 
-  // 🔊 Add visible expanding ring (shockwave)
-  let waveLife = 1;
-  const wave = { x, y, r: 0, life: waveLife };
+  // ── 1. Massive fire burst ──────────────────────────────────────
+  for (let i = 0; i < 40; i++) createFireCluster(x, y, 2.2);
+
+  // ── 2. Screenshake ────────────────────────────────────────────
+  let shakeFrames = 18, shakeMag = 10;
+  const origTransform = render.canvas.style.transform;
+  (function shake() {
+    if (shakeFrames-- <= 0) { render.canvas.style.transform = origTransform; return; }
+    const sx = (Math.random() - 0.5) * shakeMag;
+    const sy = (Math.random() - 0.5) * shakeMag;
+    shakeMag *= 0.88;
+    render.canvas.style.transform = `translate(${sx}px,${sy}px)`;
+    requestAnimationFrame(shake);
+  })();
+
+  // ── 3. Flash overlay on canvas ────────────────────────────────
+  const flashDiv = document.createElement('div');
+  Object.assign(flashDiv.style, {
+    position: 'fixed', inset: '0', zIndex: '9999', pointerEvents: 'none',
+    background: 'radial-gradient(circle at ' + (x/canvas.width*100) + '% ' + ((y+60)/window.innerHeight*100) + '%, rgba(255,220,80,0.72) 0%, rgba(255,80,0,0.28) 45%, transparent 75%)',
+    transition: 'opacity 0.55s ease-out', opacity: '1'
+  });
+  document.body.appendChild(flashDiv);
+  requestAnimationFrame(() => requestAnimationFrame(() => { flashDiv.style.opacity = '0'; }));
+  setTimeout(() => flashDiv.remove(), 700);
+
+  // ── 4. Multi-ring shockwaves ──────────────────────────────────
   const ctx = render.context;
+  const waves = [
+    { r: 0, maxR: radius * 1.05, speed: 22, lw: 10, color: [255, 200, 60],  alpha: 0.95 },
+    { r: 0, maxR: radius * 0.78, speed: 17, lw: 7,  color: [255, 100, 20],  alpha: 0.75 },
+    { r: 0, maxR: radius * 0.55, speed: 13, lw: 5,  color: [255, 255, 200], alpha: 0.60 },
+  ];
 
-  function animateWave() {
-    if (wave.life <= 0) return;
-    requestAnimationFrame(animateWave);
-    wave.r += 25; // expand speed
-    wave.life -= 0.03;
-
+  function animateExplosion() {
+    let allDone = true;
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(wave.x, wave.y, wave.r, 0, 2 * Math.PI);
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = `rgba(255,255,255,${wave.life})`;
-    ctx.stroke();
-    ctx.restore();
-  }
-  animateWave();
+    for (const w of waves) {
+      if (w.r >= w.maxR) continue;
+      allDone = false;
+      w.r += w.speed;
+      const progress = w.r / w.maxR;
+      const alpha = w.alpha * (1 - progress * progress);
 
-  // 💨 Apply much stronger blast force
+      // Outer glow ring
+      ctx.beginPath();
+      ctx.arc(x, y, w.r, 0, Math.PI * 2);
+      ctx.lineWidth = w.lw * (1 - progress * 0.5) + 2;
+      ctx.strokeStyle = `rgba(${w.color[0]},${w.color[1]},${w.color[2]},${alpha})`;
+      ctx.shadowColor  = `rgba(${w.color[0]},${w.color[1]},${w.color[2]},${alpha * 0.6})`;
+      ctx.shadowBlur   = 18;
+      ctx.stroke();
+      ctx.shadowBlur   = 0;
+    }
+
+    // Debris sparks
+    if (waves[0].r < waves[0].maxR * 0.4) {
+      for (let i = 0; i < 5; i++) {
+        const sparkAngle = Math.random() * Math.PI * 2;
+        const sparkR = waves[0].r * (0.5 + Math.random() * 0.5);
+        const sx2 = x + Math.cos(sparkAngle) * sparkR;
+        const sy2 = y + Math.sin(sparkAngle) * sparkR;
+        const sparkAlpha = 0.8 - waves[0].r / waves[0].maxR;
+        ctx.beginPath();
+        ctx.arc(sx2, sy2, 2 + Math.random() * 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,${120 + Math.random()*100|0},30,${sparkAlpha})`;
+        ctx.fill();
+      }
+    }
+
+    // Smoke lingering cloud
+    const smokeProgress = Math.max(0, (waves[0].r / waves[0].maxR - 0.3) / 0.7);
+    if (smokeProgress > 0 && smokeProgress < 1) {
+      const smokeGrad = ctx.createRadialGradient(x, y, 0, x, y, radius * 0.6 * smokeProgress);
+      smokeGrad.addColorStop(0,   `rgba(60,50,40,${0.28 * (1 - smokeProgress)})`);
+      smokeGrad.addColorStop(0.6, `rgba(40,35,30,${0.14 * (1 - smokeProgress)})`);
+      smokeGrad.addColorStop(1,   `rgba(20,15,10,0)`);
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 0.6 * smokeProgress, 0, Math.PI * 2);
+      ctx.fillStyle = smokeGrad;
+      ctx.fill();
+    }
+
+    ctx.restore();
+    if (!allDone) requestAnimationFrame(animateExplosion);
+  }
+  animateExplosion();
+
+  // ── 5. Blast physics ─────────────────────────────────────────
   for (const body of spawnedBodies) {
     if (body === tnt) continue;
     const dx = body.position.x - x;
     const dy = body.position.y - y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < radius) {
-      // Stronger and more consistent push
-      const forceMag = Math.max(0, 0.55 * (1 - dist / radius));
+      const forceMag = Math.max(0, 0.6 * (1 - dist / radius));
       const angle = Math.atan2(dy, dx);
-      const force = {
+      Body.applyForce(body, body.position, {
         x: Math.cos(angle) * forceMag,
-        y: Math.sin(angle) * forceMag - 0.02 // adds upward lift
-      };
-      Body.applyForce(body, body.position, force);
+        y: Math.sin(angle) * forceMag - 0.025
+      });
     }
   }
 
-
-  // 🔥 Ignite nearby boxes/planks only
+  // ── 6. Ignite nearby bodies ──────────────────────────────────
   for (const body of spawnedBodies) {
     const dx = body.position.x - x;
     const dy = body.position.y - y;
@@ -905,11 +969,6 @@ function explodeTNT(tnt) {
       igniteBody(body);
     }
   }
-
-  // 🧨 Remove TNT body
-  World.remove(world, tnt);
-  spawnedBodies = spawnedBodies.filter(b => b !== tnt);
-  spawnedTNTs = spawnedTNTs.filter(b => b !== tnt);
 }
 // --- 🪢 Real Rigid Rope Physics (no stretch, soft bend, realistic look) ---
 const { Constraint, Query } = Matter;
@@ -1802,6 +1861,28 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       }
       break;
     }
+    case 'setgravity':
+    case 'gravityset':
+    case 'setforce': {
+      // Works on GravityWell targets — sets pull strength and optionally radius
+      const [force, radius] = args;
+      if (typeof force !== 'number') {
+        feedback.textContent = 'setgravity(force[, radius]) requires a numeric force (e.g. 0.0005).';
+        break;
+      }
+      if (target.isGravityWell) {
+        target.pullStrength = force;
+        if (typeof radius === 'number' && radius > 0) {
+          target.gravityRadius = radius;
+          feedback.textContent = `GravityWell force set to ${force}, radius to ${radius}.`;
+        } else {
+          feedback.textContent = `GravityWell force set to ${force}.`;
+        }
+      } else {
+        feedback.textContent = 'setgravity() can only target a GravityWell object.';
+      }
+      break;
+    }
     case 'makestatic': {
       Body.setStatic(target, true);
       feedback.textContent = 'Target made static.';
@@ -1845,6 +1926,122 @@ function fireEncoderBeam(encoder) {
     document.getElementById('console-feedback').textContent = 'Beam fired; no target hit.';
   }
 }
+
+// --- 🌀 Portal Animated Visual (Wormhole Style) ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const portal of portals) {
+    if (!spawnedBodies.includes(portal)) continue;
+    const { x, y } = portal.position;
+    const isBlue = portal.label === "PortalBlue";
+    const r = portal.circleRadius || 42;
+
+    // Colors per portal type
+    const coreColor   = isBlue ? [0, 160, 255]   : [255, 130, 0];
+    const rimColor    = isBlue ? [80, 220, 255]   : [255, 200, 60];
+    const glowColor   = isBlue ? [0, 100, 200]    : [200, 80, 0];
+    const spiralColor = isBlue ? [120, 200, 255]  : [255, 180, 80];
+
+    ctx.save();
+
+    // --- Outer glow halo ---
+    const haloGrad = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 2.2);
+    haloGrad.addColorStop(0, `rgba(${glowColor},0.28)`);
+    haloGrad.addColorStop(1, `rgba(${glowColor},0)`);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = haloGrad;
+    ctx.fill();
+
+    // --- Depth tunnel rings (perspective effect) ---
+    for (let i = 5; i >= 1; i--) {
+      const depth = i / 5;
+      const ringR = r * depth * 0.92;
+      const speed = 1.4 + (5 - i) * 0.3;
+      const alpha = 0.08 + (1 - depth) * 0.22;
+      ctx.beginPath();
+      ctx.ellipse(x, y, ringR, ringR * 0.38, now * 0.15, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${coreColor},${alpha})`;
+      ctx.lineWidth = 2.5 - i * 0.3;
+      ctx.stroke();
+    }
+
+    // --- Rotating spiral arms ---
+    for (let arm = 0; arm < 4; arm++) {
+      const armOffset = (arm / 4) * Math.PI * 2;
+      const rot = now * (isBlue ? 2.2 : -2.2) + armOffset;
+      ctx.beginPath();
+      for (let s = 0; s < 48; s++) {
+        const frac = s / 48;
+        const sr = frac * r * 0.88;
+        const angle = rot + frac * Math.PI * 3;
+        const px = x + Math.cos(angle) * sr;
+        const py = y + Math.sin(angle) * sr * 0.42;
+        if (s === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = `rgba(${spiralColor},${0.55 - arm * 0.1})`;
+      ctx.lineWidth = 1.8 - arm * 0.3;
+      ctx.stroke();
+    }
+
+    // --- Rim electric arc ring ---
+    const numArcs = 10;
+    for (let a = 0; a < numArcs; a++) {
+      const baseAngle = (a / numArcs) * Math.PI * 2 + now * (isBlue ? 1.8 : -1.8);
+      const jitter = Math.sin(now * 8 + a * 2.1) * 5;
+      const ax = x + Math.cos(baseAngle) * (r + jitter);
+      const ay = y + Math.sin(baseAngle) * (r + jitter) * 0.45;
+      const bx = x + Math.cos(baseAngle + 0.6) * (r + jitter * 0.5);
+      const by = y + Math.sin(baseAngle + 0.6) * (r + jitter * 0.5) * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.strokeStyle = `rgba(${rimColor},${0.6 + Math.sin(now * 12 + a) * 0.3})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // --- Core inner glow ---
+    const coreGrad = ctx.createRadialGradient(x, y, 0, x, y, r * 0.65);
+    const pulse = 0.55 + Math.sin(now * 3.5 + (isBlue ? 0 : Math.PI)) * 0.2;
+    coreGrad.addColorStop(0,   `rgba(255,255,255,${pulse * 0.9})`);
+    coreGrad.addColorStop(0.3, `rgba(${coreColor},${pulse * 0.8})`);
+    coreGrad.addColorStop(0.7, `rgba(${glowColor},${pulse * 0.4})`);
+    coreGrad.addColorStop(1,   `rgba(${glowColor},0)`);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.65, 0, Math.PI * 2);
+    ctx.fillStyle = coreGrad;
+    ctx.fill();
+
+    // --- Particle debris orbiting ---
+    for (let p = 0; p < 6; p++) {
+      const pAngle = now * (isBlue ? 3 : -3) + (p / 6) * Math.PI * 2;
+      const pr = r * (0.55 + Math.sin(now * 2 + p) * 0.15);
+      const px = x + Math.cos(pAngle) * pr;
+      const py = y + Math.sin(pAngle) * pr * 0.4;
+      const pAlpha = 0.5 + Math.sin(now * 4 + p * 1.3) * 0.3;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${rimColor},${pAlpha})`;
+      ctx.fill();
+    }
+
+    // --- Outer rim solid ring ---
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(${rimColor},0.9)`;
+    ctx.shadowColor = `rgba(${rimColor},0.8)`;
+    ctx.shadowBlur = 14;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  }
+});
 
 // --- 🌀 Gravity Well Animated Visual ---
 Events.on(render, 'afterRender', () => {
