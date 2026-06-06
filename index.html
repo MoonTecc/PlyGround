@@ -38,17 +38,26 @@
 
   .ui-section-title { font-weight:600; margin: 6px 0 10px 0; color: #dbefff; font-size:14px; }
   .console-guide {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
     border-radius: 12px;
-    padding: 12px;
+    padding: 14px;
     margin-top: 14px;
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.6;
     color: #d6e7ff;
   }
   .console-guide strong { color: #ffffff; }
-  .console-guide code { display:inline-block; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; color: #a8fffa; }
+  .console-guide code {
+    display: inline-block;
+    background: rgba(255,255,255,0.07);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: #a8fffa;
+    font-family: Consolas, monospace;
+    font-size: 11.5px;
+    margin: 1px 0;
+  }
   .tab-buttons { display:flex; gap:8px; margin-bottom:12px; }
   .tab-buttons button {
     flex:1;
@@ -231,15 +240,62 @@
     <button id="encoder-console-run" style="margin-top:10px; width:100%; padding:10px; border:none; border-radius:10px; background: linear-gradient(90deg,#7b61ff,#c98bff); color:#fff; cursor:pointer; font-weight:700;">Save Command</button>
     <div id="console-feedback" style="margin-top:10px; font-size:13px; color:#b1f2c5;"></div>
     <div class="console-guide">
-      <strong>Encoder Guide</strong><br>
-      • Use <code>.command(args)</code> syntax.<br>
-      • Fire at a target with <strong>M</strong> to execute.<br>
-      • Indentation-based blocks are supported:<br>
-      <code>if (.get(name)=="Box")</code><br>
-      <code>  .burn()</code><br>
-      <code>else</code><br>
-      <code>  .teleport(300,100)</code><br>
-      • Try commands: <code>.push(0.05,right)</code>, <code>.size(1.5)</code>, <code>.color(#ff00ff)</code>, <code>.setgravity(0.001)</code>.
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:18px">🖥️</span>
+        <strong style="font-size:14px;letter-spacing:0.5px">ENCODER REFERENCE</strong>
+      </div>
+
+      <div style="margin-bottom:10px;padding:8px;background:rgba(0,188,255,0.06);border-left:2px solid rgba(0,188,255,0.4);border-radius:6px;">
+        <strong style="color:#7dd3fc;font-size:12px">⚡ SYNTAX</strong><br>
+        <code>.command(arg1, arg2)</code><br>
+        <span style="font-size:12px;opacity:0.8">Double-click Encoder → write command → press <strong>M</strong> aimed at a target.</span>
+      </div>
+
+      <div style="margin-bottom:10px;padding:8px;background:rgba(160,80,255,0.06);border-left:2px solid rgba(160,80,255,0.4);border-radius:6px;">
+        <strong style="color:#c084fc;font-size:12px">🔀 CONTROL FLOW</strong><br>
+        <code>if(.get(name)=="Box")</code><br>
+        <code>&nbsp;&nbsp;.burn()</code><br>
+        <code>else</code><br>
+        <code>&nbsp;&nbsp;.teleport(300,100)</code>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <strong style="color:#86efac;font-size:12px">📦 MOVEMENT</strong><br>
+        <code>.teleport(x, y)</code> — snap position<br>
+        <code>.push(force, dir)</code> — left/right/up/down<br>
+        <code>.setvelocity(vx, vy)</code> — override velocity<br>
+        <code>.applyforce(fx, fy)</code> — raw force vector
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <strong style="color:#fde68a;font-size:12px">🔧 PROPERTIES</strong><br>
+        <code>.size(scale)</code> — resize body<br>
+        <code>.setdensity(n)</code> — change mass<br>
+        <code>.setfriction(n)</code> — surface grip<br>
+        <code>.rotate(deg)</code> — rotate in degrees<br>
+        <code>.color(#hex)</code> — repaint fill<br>
+        <code>.setlabel(name)</code> — rename entity
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <strong style="color:#fca5a5;font-size:12px">🔥 ACTIONS</strong><br>
+        <code>.burn()</code> — ignite body<br>
+        <code>.transform(type)</code> — morph to box/ball/etc<br>
+        <code>.delete()</code> — remove from world<br>
+        <code>.makestatic()</code> / <code>.makedynamic()</code>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <strong style="color:#67e8f9;font-size:12px">🌀 GRAVITY WELL</strong><br>
+        <code>.setgravity(force)</code> — pull strength<br>
+        <code>.setgravity(force, radius)</code> — force + range
+      </div>
+
+      <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;">
+        <strong style="color:#d1d5db;font-size:12px">📡 GET VALUES</strong><br>
+        <code>.get(name)</code> · <code>.get(density)</code> · <code>.get(x)</code><br>
+        <code>.get(burning)</code> · <code>.get(mass)</code> · <code>.get(angle)</code>
+      </div>
     </div>
   </div>
 

@@ -12,7 +12,7 @@ const render = Render.create({
   options: {
     width: canvas.width,
     height: canvas.height,
-    background: "#161b22",
+    background: "#090d14", // Deeper sci-fi laboratory canvas tone
     wireframes: false,
   },
 });
@@ -20,9 +20,9 @@ Render.run(render);
 Runner.run(Runner.create(), engine);
 
 // --- Boundaries ---
-const ground = Bodies.rectangle(canvas.width/2, canvas.height, canvas.width, 60, { isStatic: true, label: "Ground" });
-const leftWall = Bodies.rectangle(0, canvas.height/2, 60, canvas.height, { isStatic: true, label: "Wall" });
-const rightWall = Bodies.rectangle(canvas.width, canvas.height/2, 60, canvas.height, { isStatic: true, label: "Wall" });
+const ground = Bodies.rectangle(canvas.width/2, canvas.height, canvas.width, 60, { isStatic: true, label: "Ground", render: { fillStyle: "#0f172a" } });
+const leftWall = Bodies.rectangle(0, canvas.height/2, 60, canvas.height, { isStatic: true, label: "Wall", render: { fillStyle: "#0f172a" } });
+const rightWall = Bodies.rectangle(canvas.width, canvas.height/2, 60, canvas.height, { isStatic: true, label: "Wall", render: { fillStyle: "#0f172a" } });
 World.add(world, [ground, leftWall, rightWall]);
 
 // --- Track spawned bodies ---
@@ -93,7 +93,7 @@ function spawnQuartz(x, y) {
     density: 0.004,
     render: {
       sprite: {
-        texture: "quartz.png", // your Quartz texture file
+        texture: "quartz.png", 
         xScale: 0.15,
         yScale: 0.15
       }
@@ -112,7 +112,7 @@ function spawnLamp(x, y) {
     density: 0.003,
     render: {
       sprite: {
-        texture: "lamp.png", // your Lamp image file
+        texture: "lamp.png", 
         xScale: 0.2,
         yScale: 0.2
       }
@@ -122,7 +122,6 @@ function spawnLamp(x, y) {
   World.add(world, lamp);
   spawnedBodies.push(lamp);
 
-  // ✨ Soft light effect around Lamp
   setInterval(() => {
     if (!spawnedBodies.includes(lamp)) return;
     const topX = lamp.position.x;
@@ -154,8 +153,8 @@ function spawnPortalPair(x, y) {
     label: "PortalBlue",
     render: {
       ...portalOpts.render,
-      fillStyle: "rgba(0,120,255,0.45)",
-      strokeStyle: "#3ac7ff"
+      fillStyle: "rgba(0,188,255,0.2)", // Sleeker translucency
+      strokeStyle: "#00bcff"
     }
   });
 
@@ -164,8 +163,8 @@ function spawnPortalPair(x, y) {
     label: "PortalOrange",
     render: {
       ...portalOpts.render,
-      fillStyle: "rgba(255,140,0,0.45)",
-      strokeStyle: "#ff9f33"
+      fillStyle: "rgba(255,119,0,0.2)", // Sleeker translucency
+      strokeStyle: "#ff7700"
     }
   });
 
@@ -187,9 +186,9 @@ function spawnCannon(x, y) {
     frictionAir: 0.01,
     density: 0.001,
     render: {
-      fillStyle: "#ffd835",
-      strokeStyle: "#ff9f00",
-      lineWidth: 3
+      fillStyle: "rgba(0,0,0,0)",
+      strokeStyle: "rgba(0,0,0,0)",
+      lineWidth: 0
     },
     label: "Cannon"
   });
@@ -198,7 +197,6 @@ function spawnCannon(x, y) {
   cannon.isLoading = false;
   cannon.loadingTarget = null;
   cannon.loadTimer = null;
-  cannon.render.fillStyle = "#ffd835";
 
   World.add(world, cannon);
   spawnedBodies.push(cannon);
@@ -269,9 +267,9 @@ function createBodyOfType(type, x, y) {
         frictionAir: 0.01,
         density: 0.001,
         render: {
-          fillStyle: "#ffd835",
-          strokeStyle: "#ff9f00",
-          lineWidth: 3
+          fillStyle: "rgba(0,0,0,0)",
+          strokeStyle: "rgba(0,0,0,0)",
+          lineWidth: 0
         },
         label: "Cannon",
         isCannon: true
@@ -283,9 +281,9 @@ function createBodyOfType(type, x, y) {
         frictionAir: 0.02,
         density: 0.002,
         render: {
-          fillStyle: "#9b59b6",
-          strokeStyle: "#f1c40f",
-          lineWidth: 3
+          fillStyle: "rgba(0,0,0,0)",
+          strokeStyle: "rgba(0,0,0,0)",
+          lineWidth: 0
         },
         label: "Encoder",
         isEncoder: true,
@@ -356,13 +354,11 @@ function startCannonLoad(cannon, target) {
 
   cannon.isLoading = true;
   cannon.loadingTarget = target;
-  cannon.render.fillStyle = "#ffa500";
 
   cannon.loadTimer = setTimeout(() => {
     if (!spawnedBodies.includes(cannon) || !spawnedBodies.includes(target)) {
       cannon.isLoading = false;
       cannon.loadingTarget = null;
-      cannon.render.fillStyle = "#ffd835";
       return;
     }
     shootCannon(cannon, target);
@@ -373,7 +369,6 @@ function shootCannon(cannon, target) {
   if (!spawnedBodies.includes(cannon) || !spawnedBodies.includes(target)) {
     cannon.isLoading = false;
     cannon.loadingTarget = null;
-    cannon.render.fillStyle = "#ffd835";
     return;
   }
 
@@ -388,7 +383,6 @@ function shootCannon(cannon, target) {
   Body.applyForce(target, target.position, force);
   cannon.isLoading = false;
   cannon.loadingTarget = null;
-  cannon.render.fillStyle = "#ffd835";
 }
 
 // --- Mouse Control ---
@@ -483,10 +477,9 @@ function createFireCluster(x, y, sizeFactor = 1) {
     f.life -= 0.014;
     const alpha = Math.max(f.life, 0);
 
-    // --- 🟠 Draw flame particle ---
     const grad = ctx.createLinearGradient(f.x, f.y + f.size, f.x, f.y - f.size);
-    grad.addColorStop(0, "rgba(255,0,0,0.9)");
-    grad.addColorStop(1, "rgba(125,125,0,0.1)");
+    grad.addColorStop(0, "rgba(255,50,0,0.9)"); // Tailored neon plasma profile
+    grad.addColorStop(1, "rgba(255,150,0,0.05)");
     ctx.translate(f.x, f.y);
     ctx.rotate(f.rotation);
     ctx.globalAlpha = alpha;
@@ -494,13 +487,12 @@ function createFireCluster(x, y, sizeFactor = 1) {
     ctx.fillRect(-f.size / 2, -f.size / 2, f.size, f.size);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // cleanup dead fire particles
     if (f.life <= 0) fires.splice(i, 1);
   }
 
   ctx.restore();
 })();
-// Track mouse position
+
 let mouseX = 0, mouseY = 0;
 
 window.addEventListener("mousemove", (e) => {
@@ -509,22 +501,18 @@ window.addEventListener("mousemove", (e) => {
   mouseY = e.clientY - rect.top;
 });
 
-// Listen for 'S' key press
 window.addEventListener("keydown", (e) => {
   if (isTypingMode()) return;
   if (e.key.toLowerCase() === 's') {
-    createFireCluster(mouseX, mouseY, 1); // sizeFactor = 1
+    createFireCluster(mouseX, mouseY, 1);
   }
 });
 
-
-// --- IGNITE & ASH SYSTEM ---
 function igniteNearbyBodies() {
   for (const body of spawnedBodies) {
     if (body.isStatic || !body.position) continue;
     if (burningBodies.has(body)) continue;
     if (!body.burnable && body.label !== "Box" && body.label !== "Plank") continue;
-
 
     for (const fire of fires) {
       const dx = fire.x - body.position.x;
@@ -535,7 +523,6 @@ function igniteNearbyBodies() {
   }
 }
 setInterval(igniteNearbyBodies, 100);
-
 
 canvas.addEventListener("dblclick", (e) => {
   const mousePos = { x: e.clientX, y: e.clientY };
@@ -555,7 +542,6 @@ function showProperties(body) {
   document.getElementById("prop-burn").checked = !!body.burnable;
 }
 
-// Apply property changes
 document.getElementById("apply-props").addEventListener("click", () => {
   if (!selectedBody) return;
   selectedBody.label = document.getElementById("prop-label").value;
@@ -563,7 +549,6 @@ document.getElementById("apply-props").addEventListener("click", () => {
   selectedBody.burnable = document.getElementById("prop-burn").checked;
   Matter.Body.setDensity(selectedBody, parseFloat(document.getElementById("prop-density").value) || selectedBody.density);
 });
-
 
 function igniteBody(body) {
   if (burningBodies.has(body)) return;
@@ -603,8 +588,8 @@ function turnToAsh(body) {
       label: "Ash",
       render: {
         sprite: {
-          texture: "Ash.png",  // 💀 your ash texture file
-          xScale: width / 512,         // adjust depending on texture resolution
+          texture: "Ash.png",  
+          xScale: width / 512,         
           yScale: height / 512
         }
       }
@@ -682,16 +667,15 @@ function crumbleAsh(ash) {
         friction: 0.9,
         density: 0.0003,
         render: {
-          fillStyle: "#555",
-          opacity: 1, // start fully visible
+          fillStyle: "#334155",
+          opacity: 1, 
         },
         label: "AshFragment",
       }
     );
 
-    // Apply a random flying force
     const forceMagnitude = 0.0005 + Math.random() * 0.0001;
-    const angle = Math.random() * Math.PI * 2; // random direction
+    const angle = Math.random() * Math.PI * 2; 
     Body.applyForce(frag, frag.position, {
       x: Math.cos(angle) * forceMagnitude,
       y: Math.sin(angle) * forceMagnitude,
@@ -700,9 +684,8 @@ function crumbleAsh(ash) {
     World.add(world, frag);
     spawnedBodies.push(frag);
 
-    // Gradually fade out and remove after 10s
-    const fadeDuration = 10000; // 10 seconds
-    const fadeStep = 100; // update every 0.1s
+    const fadeDuration = 10000; 
+    const fadeStep = 100; 
     let elapsed = 0;
 
     const fadeInterval = setInterval(() => {
@@ -719,8 +702,7 @@ function crumbleAsh(ash) {
   }
 }
 
-
-// --- 🔦 TORCH SYSTEM (Dynamic, Textured Torch with Moving Flame) ---
+// --- 🔦 TORCH SYSTEM ---
 const torches = [];
 
 function spawnTorch(x, y) {
@@ -729,11 +711,9 @@ function spawnTorch(x, y) {
     friction: 0.6,
     density: 0.002,
     render: {
-      sprite: {
-        texture: "torch.png", // 🪵 Your torch image file
-        xScale: 0.25,          // adjust these two if needed
-        yScale: 0.25,
-      },
+      fillStyle: "rgba(0,0,0,0)",
+      strokeStyle: "rgba(0,0,0,0)",
+      lineWidth: 0,
     },
     label: "Torch",
   });
@@ -742,16 +722,12 @@ function spawnTorch(x, y) {
   spawnedBodies.push(torch);
   torches.push(torch);
 
-
-
-  // 🔥 Fire that follows the top dynamically
   const fireInterval = setInterval(() => {
     if (!spawnedBodies.includes(torch)) {
       clearInterval(fireInterval);
       return;
     }
 
-    // Dynamic top position using rotation
     const topOffset = Vector.rotate({ x: 0, y: -60 }, torch.angle);
     const topX = torch.position.x + topOffset.x;
     const topY = torch.position.y + topOffset.y;
@@ -760,7 +736,6 @@ function spawnTorch(x, y) {
   }, 250);
 }
 
-// � Press "T" to spawn fire
 document.addEventListener("keydown", e => {
   if (isTypingMode()) return;
   if (e.key.toLowerCase() === "t") {
@@ -768,9 +743,6 @@ document.addEventListener("keydown", e => {
   }
 });
 
-// 🌀 Press "P" to spawn a portal pair
-// 🔫 Press "G" to spawn a cannon
-// 🖥️ Press "M" to fire the selected encoder beam
 document.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();
   if (key === "p") {
@@ -786,80 +758,78 @@ document.addEventListener("keydown", e => {
   }
 });
 
-// --- ARROW KEYS TO ROTATE HELD ITEM ---
 document.addEventListener("keydown", e => {
-  if (dragBody === null) return; // Only rotate if holding an item
+  if (dragBody === null) return; 
   
-  const rotationAmount = 0.1; // radians per keypress (~5.7 degrees)
+  const rotationAmount = 0.1; 
   
   if (e.key === "ArrowLeft") {
-    Body.rotate(dragBody, -rotationAmount); // Rotate clockwise (inverted)
+    Body.rotate(dragBody, -rotationAmount); 
   }
   if (e.key === "ArrowRight") {
-    Body.rotate(dragBody, rotationAmount); // Rotate counter-clockwise (inverted)
+    Body.rotate(dragBody, rotationAmount); 
   }
 });
 
 // --- TNT ARRAY ---
 let spawnedTNTs = [];
 
-// --- SPAWN TNT (Press X) ---
-document.addEventListener("keydown", e => {
-  if (isTypingMode()) return;
-  if (e.key.toLowerCase() === "x") {
-    const tnt = Bodies.rectangle(mouse.position.x, mouse.position.y, 45, 45, {
+function spawnTNT(x, y) {
+  try {
+    const tnt = Bodies.rectangle(x, y, 45, 45, {
       label: "TNT",
       restitution: 0.4,
       friction: 0.6,
       render: {
-        fillStyle: "#cc0000",
-        strokeStyle: "#ffffff",
+        fillStyle: "#991b1b",
+        strokeStyle: "#f87171",
         lineWidth: 2
       }
     });
+    tnt.isTNT = true;
     World.add(world, tnt);
     spawnedBodies.push(tnt);
     spawnedTNTs.push(tnt);
+  } catch(err) {
+    console.warn("TNT spawn error:", err);
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (isTypingMode()) return;
+  if (e.key.toLowerCase() === "x") {
+    spawnTNT(mouse.position.x, mouse.position.y);
   }
 });
 
-// --- IGNITE TNT (Press E) ---
 document.addEventListener("keydown", e => {
   if (e.key.toLowerCase() === "e") {
     if (spawnedTNTs.length === 0) return;
 
     const nearestTNT = spawnedTNTs[spawnedTNTs.length - 1];
 
-    // 🔥 Visual fuse flame
     createFireCluster(nearestTNT.position.x, nearestTNT.position.y, 1.4);
 
-    // 🧨 Text hint
     const ctx = render.context;
-    ctx.font = "bold 18px Arial";
-    ctx.fillStyle = "white";
+    ctx.font = "bold 18px 'Space Grotesk', sans-serif";
+    ctx.fillStyle = "#ff4444";
     ctx.fillText("💥 FUSE LIT! GET BACK!", nearestTNT.position.x - 60, nearestTNT.position.y - 60);
 
-    // Delay for fuse (2.5s)
     setTimeout(() => explodeTNT(nearestTNT), 2500);
   }
 });
 
-
-// --- 💥 REVAMPED EXPLOSION FUNCTION ---
 function explodeTNT(tnt) {
   const x = tnt.position.x;
   const y = tnt.position.y;
   const radius = 300;
 
-  // Remove TNT body first
   World.remove(world, tnt);
   spawnedBodies = spawnedBodies.filter(b => b !== tnt);
   spawnedTNTs   = spawnedTNTs.filter(b => b !== tnt);
 
-  // ── 1. Massive fire burst ──────────────────────────────────────
   for (let i = 0; i < 40; i++) createFireCluster(x, y, 2.2);
 
-  // ── 2. Screenshake ────────────────────────────────────────────
   let shakeFrames = 18, shakeMag = 10;
   const origTransform = render.canvas.style.transform;
   (function shake() {
@@ -871,23 +841,21 @@ function explodeTNT(tnt) {
     requestAnimationFrame(shake);
   })();
 
-  // ── 3. Flash overlay on canvas ────────────────────────────────
   const flashDiv = document.createElement('div');
   Object.assign(flashDiv.style, {
     position: 'fixed', inset: '0', zIndex: '9999', pointerEvents: 'none',
-    background: 'radial-gradient(circle at ' + (x/canvas.width*100) + '% ' + ((y+60)/window.innerHeight*100) + '%, rgba(255,220,80,0.72) 0%, rgba(255,80,0,0.28) 45%, transparent 75%)',
+    background: 'radial-gradient(circle at ' + (x/canvas.width*100) + '% ' + ((y+60)/window.innerHeight*100) + '%, rgba(0,212,255,0.4) 0%, rgba(155,89,182,0.2) 45%, transparent 75%)',
     transition: 'opacity 0.55s ease-out', opacity: '1'
   });
   document.body.appendChild(flashDiv);
   requestAnimationFrame(() => requestAnimationFrame(() => { flashDiv.style.opacity = '0'; }));
   setTimeout(() => flashDiv.remove(), 700);
 
-  // ── 4. Multi-ring shockwaves ──────────────────────────────────
   const ctx = render.context;
   const waves = [
-    { r: 0, maxR: radius * 1.05, speed: 22, lw: 10, color: [255, 200, 60],  alpha: 0.95 },
-    { r: 0, maxR: radius * 0.78, speed: 17, lw: 7,  color: [255, 100, 20],  alpha: 0.75 },
-    { r: 0, maxR: radius * 0.55, speed: 13, lw: 5,  color: [255, 255, 200], alpha: 0.60 },
+    { r: 0, maxR: radius * 1.05, speed: 22, lw: 10, color: [0, 188, 255],  alpha: 0.95 }, // Cyan/purple energy wave profiles
+    { r: 0, maxR: radius * 0.78, speed: 17, lw: 7,  color: [155, 89, 182],  alpha: 0.75 },
+    { r: 0, maxR: radius * 0.55, speed: 13, lw: 5,  color: [255, 255, 255], alpha: 0.60 },
   ];
 
   function animateExplosion() {
@@ -900,7 +868,6 @@ function explodeTNT(tnt) {
       const progress = w.r / w.maxR;
       const alpha = w.alpha * (1 - progress * progress);
 
-      // Outer glow ring
       ctx.beginPath();
       ctx.arc(x, y, w.r, 0, Math.PI * 2);
       ctx.lineWidth = w.lw * (1 - progress * 0.5) + 2;
@@ -911,7 +878,6 @@ function explodeTNT(tnt) {
       ctx.shadowBlur   = 0;
     }
 
-    // Debris sparks
     if (waves[0].r < waves[0].maxR * 0.4) {
       for (let i = 0; i < 5; i++) {
         const sparkAngle = Math.random() * Math.PI * 2;
@@ -921,18 +887,17 @@ function explodeTNT(tnt) {
         const sparkAlpha = 0.8 - waves[0].r / waves[0].maxR;
         ctx.beginPath();
         ctx.arc(sx2, sy2, 2 + Math.random() * 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,${120 + Math.random()*100|0},30,${sparkAlpha})`;
+        ctx.fillStyle = `rgba(0,188,255,${sparkAlpha})`;
         ctx.fill();
       }
     }
 
-    // Smoke lingering cloud
     const smokeProgress = Math.max(0, (waves[0].r / waves[0].maxR - 0.3) / 0.7);
     if (smokeProgress > 0 && smokeProgress < 1) {
       const smokeGrad = ctx.createRadialGradient(x, y, 0, x, y, radius * 0.6 * smokeProgress);
-      smokeGrad.addColorStop(0,   `rgba(60,50,40,${0.28 * (1 - smokeProgress)})`);
-      smokeGrad.addColorStop(0.6, `rgba(40,35,30,${0.14 * (1 - smokeProgress)})`);
-      smokeGrad.addColorStop(1,   `rgba(20,15,10,0)`);
+      smokeGrad.addColorStop(0,   `rgba(15,23,42,${0.28 * (1 - smokeProgress)})`);
+      smokeGrad.addColorStop(0.6, `rgba(30,41,59,${0.14 * (1 - smokeProgress)})`);
+      smokeGrad.addColorStop(1,   `rgba(0,0,0,0)`);
       ctx.beginPath();
       ctx.arc(x, y, radius * 0.6 * smokeProgress, 0, Math.PI * 2);
       ctx.fillStyle = smokeGrad;
@@ -944,7 +909,6 @@ function explodeTNT(tnt) {
   }
   animateExplosion();
 
-  // ── 5. Blast physics ─────────────────────────────────────────
   for (const body of spawnedBodies) {
     if (body === tnt) continue;
     const dx = body.position.x - x;
@@ -960,7 +924,6 @@ function explodeTNT(tnt) {
     }
   }
 
-  // ── 6. Ignite nearby bodies ──────────────────────────────────
   for (const body of spawnedBodies) {
     const dx = body.position.x - x;
     const dy = body.position.y - y;
@@ -970,7 +933,8 @@ function explodeTNT(tnt) {
     }
   }
 }
-// --- 🪢 Real Rigid Rope Physics (no stretch, soft bend, realistic look) ---
+
+// --- 🪢 Rope Physics ---
 const { Constraint, Query } = Matter;
 let ropeMode = false;
 let ropeStart = null;
@@ -984,10 +948,8 @@ document.addEventListener("keydown", e => {
     ropeMode = !ropeMode;
     ropeStart = null;
     highlightBody = null;
-    console.log(`🪢 Rope Mode: ${ropeMode ? "ON" : "OFF"}`);
   }
 
-  // 🗑 Remove nearest rope
   if (key === "r") {
     if (ropes.length > 0) {
       const mousePos = mouse.position;
@@ -1008,7 +970,6 @@ document.addEventListener("keydown", e => {
 
       if (nearestRope && nearestDist < 100) removeRope(nearestRope);
       else removeRope(ropes[ropes.length - 1]);
-      console.log("❌ Rope removed.");
     }
   }
 });
@@ -1019,7 +980,6 @@ function removeRope(rope) {
   ropes = ropes.filter(r => r !== rope);
 }
 
-// --- Rope creation ---
 Events.on(mouseConstraint, "mousedown", () => {
   if (!ropeMode) return;
   const mousePos = mouse.position;
@@ -1028,16 +988,19 @@ Events.on(mouseConstraint, "mousedown", () => {
     const body = found[0];
     if (!ropeStart) {
       ropeStart = body;
-      console.log("🔹 First body selected for rope.");
     } else if (body !== ropeStart) {
       createRealRope(ropeStart, body);
       ropeStart = null;
-      console.log("🪢 Rope created.");
     }
   }
 });
 
-// --- Highlight body under mouse ---
+Events.on(mouseConstraint, "startdrag", () => {
+  if (ropeMode) {
+    setTimeout(() => { mouseConstraint.body = null; }, 0);
+  }
+});
+
 Events.on(render, "beforeRender", () => {
   if (!ropeMode) {
     highlightBody = null;
@@ -1047,7 +1010,6 @@ Events.on(render, "beforeRender", () => {
   highlightBody = found.length > 0 ? found[0] : null;
 });
 
-// --- Create Rigid Rope (zero stretch, soft bend) ---
 function createRealRope(bodyA, bodyB, segments = 15) {
   const ropeSegments = [];
   const constraints = [];
@@ -1058,7 +1020,6 @@ function createRealRope(bodyA, bodyB, segments = 15) {
   const dy = (end.y - start.y) / (segments + 1);
   const segmentLength = Math.sqrt(dx * dx + dy * dy);
 
-  // 🧩 Create rigid rope links
   for (let i = 0; i < segments; i++) {
     const link = Bodies.circle(start.x + dx * (i + 1), start.y + dy * (i + 1), 3, {
       friction: 0.8,
@@ -1066,72 +1027,53 @@ function createRealRope(bodyA, bodyB, segments = 15) {
       mass: 0.1,
       density: 0.005,
       collisionFilter: { group: -1 },
-      render: { fillStyle: "#ffaa00" }
+      render: { fillStyle: "#00bcff" } // Neon tether node style
     });
     ropeSegments.push(link);
     World.add(world, link);
   }
 
-  // 🔗 Create very stiff constraints (virtually rigid)
   const makeConstraint = (A, B) => Constraint.create({
     bodyA: A,
     bodyB: B,
     length: segmentLength,
-    stiffness: 1,      // <--- full stiffness (no stretch)
-    damping: 0.2,      // <--- removes vibration
+    stiffness: 1,      
+    damping: 0.2,      
     render: { visible: false }
   });
 
-  // connect first link to bodyA
   constraints.push(makeConstraint(bodyA, ropeSegments[0]));
 
-  // connect middle links
   for (let i = 0; i < ropeSegments.length - 1; i++) {
     constraints.push(makeConstraint(ropeSegments[i], ropeSegments[i + 1]));
   }
 
-  // connect last link to bodyB
   constraints.push(makeConstraint(ropeSegments[ropeSegments.length - 1], bodyB));
 
-  // add to world
   for (const c of constraints) World.add(world, c);
 
   ropes.push({ bodyA, bodyB, segments: ropeSegments, constraints });
 }
 
-
-// --- Rope Auto-Break System ---
 Events.on(engine, "afterUpdate", () => {
   for (let i = ropes.length - 1; i >= 0; i--) {
     const rope = ropes[i];
     if (!world.bodies.includes(rope.bodyA) || !world.bodies.includes(rope.bodyB)) {
       removeRope(rope);
-      console.log("💥 Rope broke: connected body removed.");
     }
   }
 });
 
-// --- Render rope (fiber texture + bend + highlight) ---
 Events.on(render, "afterRender", () => {
   const ctx = render.context;
+  const now = performance.now() / 1000;
   ctx.save();
 
   for (const rope of ropes) {
     const pts = [rope.bodyA.position, ...rope.segments.map(s => s.position), rope.bodyB.position];
     if (pts.length < 2) continue;
 
-    // 🎨 Rope gradient (brown-gold fiber)
-    const grad = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[pts.length - 1].x, pts[pts.length - 1].y);
-    grad.addColorStop(0, "#b8860b");
-    grad.addColorStop(0.5, "#d2b48c");
-    grad.addColorStop(1, "#b8860b");
-
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 4;
-    ctx.shadowColor = "#d2b48c";
-    ctx.shadowBlur = 8;
-
-    // 🪶 Smooth natural rope bend (quadratic curve)
+    // --- Outer glow pass ---
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length - 1; i++) {
@@ -1140,47 +1082,101 @@ Events.on(render, "afterRender", () => {
       ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.strokeStyle = 'rgba(0,188,255,0.18)';
+    ctx.lineWidth = 9;
+    ctx.shadowBlur = 0;
     ctx.stroke();
+
+    // --- Core animated rope ---
+    const grad = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[pts.length-1].x, pts[pts.length-1].y);
+    const t = (Math.sin(now * 2) + 1) / 2; // 0..1 oscillating
+    grad.addColorStop(0,   `rgba(0,${150 + (t * 80)|0},255,0.95)`);
+    grad.addColorStop(0.4, `rgba(120,60,255,0.85)`);
+    grad.addColorStop(0.7, `rgba(200,80,255,0.85)`);
+    grad.addColorStop(1,   `rgba(255,${100 + ((1-t)*100)|0},50,0.9)`);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const xc = (pts[i].x + pts[i + 1].x) / 2;
+      const yc = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = 'rgba(0,188,255,0.6)';
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // --- Energy pulses travelling along rope ---
+    const totalPts = pts.length;
+    for (let pulse = 0; pulse < 2; pulse++) {
+      const pFrac = ((now * 0.5 + pulse * 0.5) % 1);
+      const pIdx = pFrac * (totalPts - 1);
+      const pLow = Math.floor(pIdx);
+      const pHigh = Math.min(pLow + 1, totalPts - 1);
+      const pT = pIdx - pLow;
+      const px = pts[pLow].x + (pts[pHigh].x - pts[pLow].x) * pT;
+      const py = pts[pLow].y + (pts[pHigh].y - pts[pLow].y) * pT;
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fillStyle = pulse === 0 ? 'rgba(0,230,255,0.95)' : 'rgba(200,100,255,0.95)';
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 14;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // --- Anchor indicators at endpoints ---
+    for (const ep of [pts[0], pts[pts.length - 1]]) {
+      const aAlpha = 0.4 + Math.sin(now * 3) * 0.2;
+      ctx.beginPath();
+      ctx.arc(ep.x, ep.y, 8, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0,188,255,${aAlpha})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(ep.x, ep.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,220,255,${0.7 + aAlpha * 0.3})`;
+      ctx.fill();
+    }
   }
 
-  // ✅ Keep your green/blue selection outline
+  // Rope mode highlight
   if (highlightBody) {
     const b = highlightBody.bounds;
-    ctx.strokeStyle = ropeStart ? "#00ffff" : "#00ff00";
-    ctx.lineWidth = 2;
-    ctx.shadowBlur = 8;
+    const hAlpha = 0.5 + Math.sin(now * 6) * 0.3;
+    ctx.strokeStyle = ropeStart ? `rgba(255,120,0,${hAlpha})` : `rgba(0,188,255,${hAlpha})`;
+    ctx.lineWidth = 2.5;
+    ctx.shadowBlur = 12;
     ctx.shadowColor = ctx.strokeStyle;
-    ctx.strokeRect(b.min.x - 2, b.min.y - 2, b.max.x - b.min.x + 4, b.max.y - b.min.y + 4);
+    ctx.strokeRect(b.min.x - 3, b.min.y - 3, b.max.x - b.min.x + 6, b.max.y - b.min.y + 6);
+    ctx.shadowBlur = 0;
   }
 
   ctx.restore();
 });
 
-
-
-// --- 🔩 SCREW SYSTEM (With Texture + Removal) ---
+// --- 🔩 SCREW SYSTEM ---
 let screwMode = false;
-let screws = []; // store screws with linked bodies
+let screws = []; 
 
 document.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();
 
-  // Toggle screw mode
   if (key === "z") {
     screwMode = !screwMode;
-    console.log(`🔩 Screw Mode: ${screwMode ? "ON" : "OFF"}`);
 
-    // When pressing Z while dragging a body
     if (screwMode && mouseConstraint.body && !mouseConstraint.body.isStatic) {
       const target = mouseConstraint.body;
       const pos = { x: mouse.position.x, y: mouse.position.y };
 
-      // Create screw visual
       const screw = Bodies.circle(pos.x, pos.y, 15, {
         isStatic: true,
         render: {
           sprite: {
-            texture: "Screw.png", // 🧷 your screw texture file
+            texture: "Screw.png", 
             xScale: 0.1,
             yScale: 0.1,
           }
@@ -1189,16 +1185,13 @@ document.addEventListener("keydown", e => {
       });
       World.add(world, screw);
 
-      // Turn body static
       Body.setStatic(target, true);
-      console.log("🧱 Object screwed and fixed in place.");
 
       screws.push({ screw, target });
-      screwMode = false; // auto turn off mode after placing
+      screwMode = false; 
     }
   }
 
-  // Remove screw (press C)
   if (key === "c") {
     const mousePos = mouse.position;
     for (let i = screws.length - 1; i >= 0; i--) {
@@ -1207,17 +1200,14 @@ document.addEventListener("keydown", e => {
       const dy = mousePos.y - screw.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // If mouse near screw, unscrew it
       if (dist < 40) {
         World.remove(world, screw);
         Body.setStatic(target, false);
-        console.log("🔓 Screw removed — object is now dynamic again!");
         screws.splice(i, 1);
 
-        // 🔄 Small unscrew animation effect
         const ctx = render.context;
         ctx.save();
-        ctx.strokeStyle = "#ffcc00";
+        ctx.strokeStyle = "#00bcff";
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(mousePos.x, mousePos.y, 20, 0, 2 * Math.PI);
@@ -1228,7 +1218,6 @@ document.addEventListener("keydown", e => {
   }
 });
 
-// Optional visual marker glow (so you can see all screws)
 Events.on(render, "afterRender", () => {
   const ctx = render.context;
   ctx.save();
@@ -1236,16 +1225,16 @@ Events.on(render, "afterRender", () => {
     ctx.beginPath();
     ctx.arc(screw.position.x, screw.position.y, 16, 0, 2 * Math.PI);
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(255,255,0,0.4)";
+    ctx.strokeStyle = "rgba(0,188,255,0.4)";
     ctx.stroke();
   }
   ctx.restore();
 });
+
 /* =========================
    FULL UI + OBJECT + CONSOLE SYSTEM
 ========================= */
 
-// Sidebar toggle
 const uiMenuBtn = document.getElementById('uiMenuBtn');
 const sidebar = document.getElementById('sidebar');
 const uiHint = document.getElementById('uiHint');
@@ -1256,7 +1245,6 @@ uiMenuBtn.addEventListener('click', () => {
   uiHint.classList.toggle('visible', sidebar.classList.contains('open'));
 });
 
-// Tabs
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1267,7 +1255,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// Drag setup for object items
 document.querySelectorAll('.object-item').forEach(item => {
   item.addEventListener('dragstart', ev => {
     ev.dataTransfer.setData('text/plain', item.dataset.type);
@@ -1283,7 +1270,6 @@ document.querySelectorAll('.object-item').forEach(item => {
   });
 });
 
-// Drop onto canvas
 canvas.addEventListener('dragover', ev => ev.preventDefault());
 canvas.addEventListener('drop', ev => {
   ev.preventDefault();
@@ -1322,11 +1308,7 @@ function spawnFromType(type, x, y) {
     case 'hex': spawnHex(x,y); break;
     case 'plank': spawnPlank(x,y); break;
     case 'miniball': spawnMiniBall(x,y); break;
-    case 'tnt': {
-      const tnt = Bodies.rectangle(x,y,45,45,{label:"TNT", restitution:0.4, friction:0.6,
-        render:{sprite:{texture:"tnt.png", xScale:0.18, yScale:0.18}}});
-      World.add(world,tnt); spawnedBodies.push(tnt); spawnedTNTs.push(tnt);
-    } break;
+    case 'tnt': spawnTNT(x, y); break;
     case 'torch': spawnTorch(x,y); break;
     case 'lamp': spawnLamp(x,y); break;
     case 'portal': spawnPortalPair(x,y); break;
@@ -1358,7 +1340,7 @@ render.canvas.addEventListener('dblclick', ev => {
     if(previousSelected && previousSelected!==found[0]) clearSelectionStyle(previousSelected);
     selectedBody=found[0]; previousSelected=selectedBody;
     if(!selectedBody.render) selectedBody.render={};
-    selectedBody.render.strokeStyle='cyan'; selectedBody.render.lineWidth=4;
+    selectedBody.render.strokeStyle='#00bcff'; selectedBody.render.lineWidth=4; // Matching portal blue anchor
     if (selectedBody.isEncoder) {
       showConsole(selectedBody);
     } else {
@@ -1396,7 +1378,7 @@ function showConsole(body) {
   selectedBody = body;
   document.querySelector('[data-tab="console"]').click();
   document.getElementById('encoder-console-input').value = body.code || '';
-  document.getElementById('console-feedback').textContent = 'Press M to fire the encoder beam at an object.';
+  document.getElementById('console-feedback').textContent = 'Press M to execute compiler beam payload at an object.';
   sidebar.classList.add('open'); sidebar.setAttribute('aria-hidden','false'); uiHint.classList.add('visible');
 }
 
@@ -1409,7 +1391,7 @@ function saveEncoderCommand() {
   if (!selectedEncoder) return;
   const commandText = document.getElementById('encoder-console-input').value.trim();
   selectedEncoder.code = commandText;
-  document.getElementById('console-feedback').textContent = commandText ? 'Command saved.' : 'Encoder code cleared.';
+  document.getElementById('console-feedback').textContent = commandText ? 'Command string cached successfully.' : 'Encoder instructions cleared.';
 }
 
 function parseEncoderCommand(command) {
@@ -1673,7 +1655,7 @@ function runEncoderStatements(statements, encoder, target) {
 function runSingleEncoderCommand(encoder, target, cmdText) {
   const parsed = parseEncoderCommand(cmdText);
   if (!parsed) {
-    document.getElementById('console-feedback').textContent = `Invalid command: ${cmdText}`;
+    document.getElementById('console-feedback').textContent = `Invalid token parsed: ${cmdText}`;
     return;
   }
 
@@ -1684,9 +1666,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [x, y] = args;
       if (typeof x === 'number' && typeof y === 'number') {
         Body.setPosition(target, { x, y });
-        feedback.textContent = `Teleported target to ${x}, ${y}.`;
+        feedback.textContent = `Displaced entity vector to ${x}, ${y}.`;
       } else {
-        feedback.textContent = 'teleport(x,y) requires two numbers.';
+        feedback.textContent = 'teleport(x,y) structural syntax fault.';
       }
       break;
     }
@@ -1694,12 +1676,12 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [type] = args;
       if (typeof type === 'string' && type.length > 0) {
         if (transformBody(target, type)) {
-          feedback.textContent = `Transformed target into ${type}.`;
+          feedback.textContent = `Transformed target schema to ${type}.`;
         } else {
-          feedback.textContent = `Unknown transform type: ${type}.`;
+          feedback.textContent = `Unknown element matrix type: ${type}.`;
         }
       } else {
-        feedback.textContent = 'transform(item) requires a valid type.';
+        feedback.textContent = 'transform(item) parameters unassigned.';
       }
       break;
     }
@@ -1707,9 +1689,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [value] = args;
       if (typeof value === 'number') {
         target.friction = value;
-        feedback.textContent = `Target friction set to ${value}.`;
+        feedback.textContent = `Entity friction coeff set to ${value}.`;
       } else {
-        feedback.textContent = 'setfriction(value) requires a number.';
+        feedback.textContent = 'setfriction(value) requires valid float scalar.';
       }
       break;
     }
@@ -1717,46 +1699,46 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [value] = args;
       if (typeof value === 'number') {
         Body.setDensity(target, value);
-        feedback.textContent = `Target density set to ${value}.`;
+        feedback.textContent = `Target atomic density set to ${value}.`;
       } else {
-        feedback.textContent = 'setdensity(value) requires a number.';
+        feedback.textContent = 'setdensity(value) parameter register invalid.';
       }
       break;
     }
     case 'burn': {
       igniteBody(target);
-      feedback.textContent = 'Target ignited.';
+      feedback.textContent = 'Target thermal overload initialized.';
       break;
     }
     case 'isburnable': {
       const [value] = args;
       if (typeof value === 'boolean') {
         target.isBurnable = value;
-        feedback.textContent = `Target burnable set to ${value}.`;
+        feedback.textContent = `Target thermal state set to ${value}.`;
       } else {
-        feedback.textContent = 'isburnable(true/false) requires a boolean.';
+        feedback.textContent = 'isburnable(true/false) flag logic syntax error.';
       }
       break;
     }
     case 'delete': {
       World.remove(world, target);
       spawnedBodies = spawnedBodies.filter(b => b !== target);
-      feedback.textContent = 'Target deleted.';
+      feedback.textContent = 'Asset purged from structural memory.';
       break;
     }
     case 'explode': {
       try {
         explodeTNT(target);
-        feedback.textContent = 'Target exploded.';
+        feedback.textContent = 'Explosive reaction deployed.';
       } catch (err) {
-        feedback.textContent = 'explode() failed.';
+        feedback.textContent = 'Reaction execution failure.';
       }
       break;
     }
     case 'push': {
       const [force, direction] = args;
       if (typeof force !== 'number') {
-        feedback.textContent = 'push(force,direction) requires a numeric force.';
+        feedback.textContent = 'push(force,direction) requires structural force scalar.';
         break;
       }
       let vec = { x: 0, y: 0 };
@@ -1776,11 +1758,11 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
         const angle = direction;
         vec = { x: Math.cos(angle * Math.PI / 180), y: Math.sin(angle * Math.PI / 180) };
       } else {
-        feedback.textContent = 'push(force,direction) direction must be left/right/up/down or a number.';
+        feedback.textContent = 'Direction orientation invalid.';
         break;
       }
       Body.applyForce(target, target.position, { x: vec.x * force, y: vec.y * force });
-      feedback.textContent = `Pushed target ${direction} with force ${force}.`;
+      feedback.textContent = `Kinetic force shift applied ${direction}.`;
       break;
     }
     case 'size': {
@@ -1791,9 +1773,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
           target.render.sprite.xScale = (target.render.sprite.xScale || 1) * value;
           target.render.sprite.yScale = (target.render.sprite.yScale || 1) * value;
         }
-        feedback.textContent = `Scaled target by ${value}.`;
+        feedback.textContent = `Scaled object dimensional profile by ${value}.`;
       } else {
-        feedback.textContent = 'size(value) requires a positive number.';
+        feedback.textContent = 'Dimension values must be positive scalars.';
       }
       break;
     }
@@ -1801,9 +1783,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [prop] = args;
       if (typeof prop === 'string' && prop.length > 0) {
         const value = getPropertyValue(target, prop);
-        feedback.textContent = `get(${prop}) = ${value}`;
+        feedback.textContent = `Query output: get(${prop}) = ${value}`;
       } else {
-        feedback.textContent = 'get(property) requires a property name.';
+        feedback.textContent = 'Property pointer index blank.';
       }
       break;
     }
@@ -1812,9 +1794,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [text] = args;
       if (typeof text === 'string' && text.length > 0) {
         target.label = text;
-        feedback.textContent = `Target label set to ${text}.`;
+        feedback.textContent = `Entity namespace mapped to ${text}.`;
       } else {
-        feedback.textContent = 'setlabel(name) requires a string.';
+        feedback.textContent = 'Namespace strings require character data.';
       }
       break;
     }
@@ -1824,9 +1806,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       if (typeof color === 'string' && color.length > 0) {
         if (!target.render) target.render = {};
         target.render.fillStyle = color;
-        feedback.textContent = `Target color set to ${color}.`;
+        feedback.textContent = `Render skin remapped to ${color}.`;
       } else {
-        feedback.textContent = 'color(value) requires a color string.';
+        feedback.textContent = 'Remap colors require valid hex string parameters.';
       }
       break;
     }
@@ -1834,9 +1816,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [angle] = args;
       if (typeof angle === 'number') {
         Body.rotate(target, angle * Math.PI / 180);
-        feedback.textContent = `Rotated target by ${angle} degrees.`;
+        feedback.textContent = `Rotated structural chassis by ${angle}°.`;
       } else {
-        feedback.textContent = 'rotate(angle) requires a number.';
+        feedback.textContent = 'Angle arguments must specify a float degree.';
       }
       break;
     }
@@ -1845,9 +1827,9 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [x, y] = args;
       if (typeof x === 'number' && typeof y === 'number') {
         Body.applyForce(target, target.position, { x, y });
-        feedback.textContent = `Applied force (${x}, ${y}) to target.`;
+        feedback.textContent = `Vector magnitude thrust (${x}, ${y}) applied.`;
       } else {
-        feedback.textContent = 'force(x,y) requires two numbers.';
+        feedback.textContent = 'Vector coordinates require pair scalars.';
       }
       break;
     }
@@ -1855,46 +1837,45 @@ function runSingleEncoderCommand(encoder, target, cmdText) {
       const [x, y] = args;
       if (typeof x === 'number' && typeof y === 'number') {
         Body.setVelocity(target, { x, y });
-        feedback.textContent = `Velocity set to (${x}, ${y}).`;
+        feedback.textContent = `Chassis rate of change forced to (${x}, ${y}).`;
       } else {
-        feedback.textContent = 'setvelocity(x,y) requires two numbers.';
+        feedback.textContent = 'Velocity rates require functional vector elements.';
       }
       break;
     }
     case 'setgravity':
     case 'gravityset':
     case 'setforce': {
-      // Works on GravityWell targets — sets pull strength and optionally radius
       const [force, radius] = args;
       if (typeof force !== 'number') {
-        feedback.textContent = 'setgravity(force[, radius]) requires a numeric force (e.g. 0.0005).';
+        feedback.textContent = 'Force parameter array register invalid.';
         break;
       }
       if (target.isGravityWell) {
         target.pullStrength = force;
         if (typeof radius === 'number' && radius > 0) {
           target.gravityRadius = radius;
-          feedback.textContent = `GravityWell force set to ${force}, radius to ${radius}.`;
+          feedback.textContent = `Gravity fields adjusted: Force: ${force}, Range: ${radius}.`;
         } else {
-          feedback.textContent = `GravityWell force set to ${force}.`;
+          feedback.textContent = `Gravity field magnitude locked to ${force}.`;
         }
       } else {
-        feedback.textContent = 'setgravity() can only target a GravityWell object.';
+        feedback.textContent = 'Target instance is structurally non-magnetic.';
       }
       break;
     }
     case 'makestatic': {
       Body.setStatic(target, true);
-      feedback.textContent = 'Target made static.';
+      feedback.textContent = 'Entity position locked in grid coordinates.';
       break;
     }
     case 'makedynamic': {
       Body.setStatic(target, false);
-      feedback.textContent = 'Target made dynamic.';
+      feedback.textContent = 'Entity physics loop unlatched.';
       break;
     }
     default: {
-      feedback.textContent = `Unknown command .${name}().`;
+      feedback.textContent = `Runtime compilation error: .${name}() is undefined.`;
     }
   }
 }
@@ -1907,7 +1888,7 @@ function runEncoderCommand(encoder, target) {
 
 function fireEncoderBeam(encoder) {
   if (!encoder || !encoder.code) {
-    document.getElementById('console-feedback').textContent = 'Please enter a command before firing.';
+    document.getElementById('console-feedback').textContent = 'Instruction matrix blank. Write a command buffer.';
     return;
   }
 
@@ -1923,7 +1904,7 @@ function fireEncoderBeam(encoder) {
     encoderBeam = { start, end: hit.point || hit.body.position, life: 30, hit: true };
   } else {
     encoderBeam = { start, end, life: 30, hit: false };
-    document.getElementById('console-feedback').textContent = 'Beam fired; no target hit.';
+    document.getElementById('console-feedback').textContent = 'Compiler pulse emitted into void. No target intercepted.';
   }
 }
 
@@ -1938,24 +1919,21 @@ Events.on(render, 'afterRender', () => {
     const isBlue = portal.label === "PortalBlue";
     const r = portal.circleRadius || 42;
 
-    // Colors per portal type
-    const coreColor   = isBlue ? [0, 160, 255]   : [255, 130, 0];
-    const rimColor    = isBlue ? [80, 220, 255]   : [255, 200, 60];
-    const glowColor   = isBlue ? [0, 100, 200]    : [200, 80, 0];
-    const spiralColor = isBlue ? [120, 200, 255]  : [255, 180, 80];
+    const coreColor   = isBlue ? [0, 188, 255]   : [255, 119, 0];
+    const rimColor    = isBlue ? [100, 225, 255]  : [255, 180, 50];
+    const glowColor   = isBlue ? [0, 90, 180]     : [180, 60, 0];
+    const spiralColor = isBlue ? [150, 230, 255]  : [255, 200, 120];
 
     ctx.save();
 
-    // --- Outer glow halo ---
     const haloGrad = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 2.2);
-    haloGrad.addColorStop(0, `rgba(${glowColor},0.28)`);
+    haloGrad.addColorStop(0, `rgba(${glowColor},0.35)`);
     haloGrad.addColorStop(1, `rgba(${glowColor},0)`);
     ctx.beginPath();
     ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
     ctx.fillStyle = haloGrad;
     ctx.fill();
 
-    // --- Depth tunnel rings (perspective effect) ---
     for (let i = 5; i >= 1; i--) {
       const depth = i / 5;
       const ringR = r * depth * 0.92;
@@ -1968,7 +1946,6 @@ Events.on(render, 'afterRender', () => {
       ctx.stroke();
     }
 
-    // --- Rotating spiral arms ---
     for (let arm = 0; arm < 4; arm++) {
       const armOffset = (arm / 4) * Math.PI * 2;
       const rot = now * (isBlue ? 2.2 : -2.2) + armOffset;
@@ -1987,7 +1964,6 @@ Events.on(render, 'afterRender', () => {
       ctx.stroke();
     }
 
-    // --- Rim electric arc ring ---
     const numArcs = 10;
     for (let a = 0; a < numArcs; a++) {
       const baseAngle = (a / numArcs) * Math.PI * 2 + now * (isBlue ? 1.8 : -1.8);
@@ -2004,7 +1980,6 @@ Events.on(render, 'afterRender', () => {
       ctx.stroke();
     }
 
-    // --- Core inner glow ---
     const coreGrad = ctx.createRadialGradient(x, y, 0, x, y, r * 0.65);
     const pulse = 0.55 + Math.sin(now * 3.5 + (isBlue ? 0 : Math.PI)) * 0.2;
     coreGrad.addColorStop(0,   `rgba(255,255,255,${pulse * 0.9})`);
@@ -2016,7 +1991,6 @@ Events.on(render, 'afterRender', () => {
     ctx.fillStyle = coreGrad;
     ctx.fill();
 
-    // --- Particle debris orbiting ---
     for (let p = 0; p < 6; p++) {
       const pAngle = now * (isBlue ? 3 : -3) + (p / 6) * Math.PI * 2;
       const pr = r * (0.55 + Math.sin(now * 2 + p) * 0.15);
@@ -2029,7 +2003,6 @@ Events.on(render, 'afterRender', () => {
       ctx.fill();
     }
 
-    // --- Outer rim solid ring ---
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.lineWidth = 3;
@@ -2056,39 +2029,35 @@ Events.on(render, 'afterRender', () => {
 
     ctx.save();
 
-    // Radius boundary ring (faint dashed)
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(140, 60, 255, 0.12)';
+    ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 10]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 3 pulsing rings
     for (let i = 0; i < 3; i++) {
       const t = now * (0.8 + i * 0.3) + phase + i * (Math.PI * 2 / 3);
       const ringR = 20 + i * 18 + Math.sin(t * 1.4) * 6;
       const alpha = 0.55 - i * 0.12 + Math.sin(t) * 0.1;
       ctx.beginPath();
       ctx.arc(x, y, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(200, 120, 255, ${alpha})`;
+      ctx.strokeStyle = `rgba(180, 110, 255, ${alpha})`;
       ctx.lineWidth = 3 - i * 0.6;
       ctx.stroke();
     }
 
-    // Core glow
     const coreGrad = ctx.createRadialGradient(x, y, 0, x, y, 40);
     const pulse = 0.6 + Math.sin(now * 2.5 + phase) * 0.2;
-    coreGrad.addColorStop(0, `rgba(220, 160, 255, ${pulse})`);
-    coreGrad.addColorStop(0.4, `rgba(130, 40, 255, ${pulse * 0.7})`);
-    coreGrad.addColorStop(1, `rgba(60, 0, 160, 0)`);
+    coreGrad.addColorStop(0, `rgba(230, 180, 255, ${pulse})`);
+    coreGrad.addColorStop(0.4, `rgba(155, 89, 182, ${pulse * 0.7})`);
+    coreGrad.addColorStop(1, `rgba(50, 0, 120, 0)`);
     ctx.beginPath();
     ctx.arc(x, y, 40, 0, Math.PI * 2);
     ctx.fillStyle = coreGrad;
     ctx.fill();
 
-    // Spiral arms
     for (let arm = 0; arm < 2; arm++) {
       const armAngle = now * 1.6 + arm * Math.PI + phase;
       ctx.beginPath();
@@ -2101,7 +2070,7 @@ Events.on(render, 'afterRender', () => {
         if (s === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = `rgba(200, 130, 255, ${0.35 - arm * 0.1})`;
+      ctx.strokeStyle = `rgba(180, 110, 255, ${0.35 - arm * 0.1})`;
       ctx.lineWidth = 2;
       ctx.stroke();
     }
@@ -2114,7 +2083,7 @@ Events.on(render, 'afterRender', () => {
   if (!encoderBeam) return;
   const ctx = render.context;
   ctx.save();
-  ctx.strokeStyle = encoderBeam.hit ? '#7fffd4' : '#888';
+  ctx.strokeStyle = encoderBeam.hit ? '#c8a2c8' : '#64748b'; // Sleek cosmic gravity blast laser line
   ctx.lineWidth = 4;
   ctx.globalAlpha = Math.max(encoderBeam.life / 30, 0);
   ctx.setLineDash([8, 6]);
@@ -2128,24 +2097,489 @@ Events.on(render, 'afterRender', () => {
   if (encoderBeam.life <= 0) encoderBeam = null;
 });
 
+// =====================================================
+// 🎨 ANIMATED VISUALS: TNT, CANNON, ENCODER, TORCH, ROPE
+// =====================================================
+
+// --- 💣 TNT Animated Visual ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const tnt of spawnedTNTs) {
+    if (!spawnedBodies.includes(tnt)) continue;
+    const { x, y } = tnt.position;
+    const a = tnt.angle;
+    const hw = 22, hh = 22;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+
+    // Danger pulse glow
+    const pulse = 0.5 + Math.sin(now * 5) * 0.3;
+    const danger = 0.5 + Math.sin(now * 5 + Math.PI) * 0.3;
+
+    // Outer glow
+    const glowGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, hw * 2.4);
+    glowGrad.addColorStop(0, `rgba(255,50,30,${pulse * 0.5})`);
+    glowGrad.addColorStop(0.5, `rgba(255,20,0,${pulse * 0.18})`);
+    glowGrad.addColorStop(1, 'rgba(255,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, hw * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = glowGrad;
+    ctx.fill();
+
+    // Main body (dark red)
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 4);
+    const bodyGrad = ctx.createLinearGradient(-hw, -hh, hw, hh);
+    bodyGrad.addColorStop(0, '#7f1d1d');
+    bodyGrad.addColorStop(0.5, '#991b1b');
+    bodyGrad.addColorStop(1, '#450a0a');
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+
+    // Circuit lines (animated)
+    ctx.strokeStyle = `rgba(248,113,113,${0.35 + danger * 0.4})`;
+    ctx.lineWidth = 1;
+    // horizontal bar
+    ctx.beginPath(); ctx.moveTo(-hw + 5, -4); ctx.lineTo(hw - 5, -4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-hw + 5,  4); ctx.lineTo(hw - 5,  4); ctx.stroke();
+    // tick marks
+    for (let t = -3; t <= 3; t++) {
+      const tx = t * 6;
+      ctx.beginPath(); ctx.moveTo(tx, -4); ctx.lineTo(tx, 4); ctx.stroke();
+    }
+
+    // "TNT" label text
+    ctx.font = `bold ${8 + Math.sin(now * 5) * 0.5}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = `rgba(255,${80 + danger * 100 | 0},80,${0.85 + danger * 0.15})`;
+    ctx.shadowColor = `rgba(255,50,0,${pulse * 0.9})`;
+    ctx.shadowBlur = 8;
+    ctx.fillText('TNT', 0, -10);
+    ctx.shadowBlur = 0;
+
+    // Fuse at top
+    const fuseX = 0, fuseY = -hh;
+    const fuseLen = 12 + Math.sin(now * 6) * 2;
+    ctx.beginPath();
+    ctx.moveTo(fuseX, fuseY);
+    ctx.lineTo(fuseX + Math.sin(now * 4) * 3, fuseY - fuseLen);
+    ctx.strokeStyle = `rgba(200,150,50,0.9)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Fuse spark
+    const sparkAlpha = 0.6 + Math.sin(now * 12) * 0.4;
+    ctx.beginPath();
+    ctx.arc(fuseX + Math.sin(now * 4) * 3, fuseY - fuseLen, 3, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,220,0,${sparkAlpha})`;
+    ctx.shadowColor = 'rgba(255,180,0,0.9)';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Corner bolts
+    for (const [bx, by] of [[-hw+5,-hh+5],[hw-5,-hh+5],[-hw+5,hh-5],[hw-5,hh-5]]) {
+      ctx.beginPath();
+      ctx.arc(bx, by, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,80,80,0.8)`;
+      ctx.fill();
+    }
+
+    // Red border
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 4);
+    ctx.strokeStyle = `rgba(248,113,113,${0.5 + pulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+});
+
+// --- 🔫 Cannon Animated Visual ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const cannon of cannons) {
+    if (!spawnedBodies.includes(cannon)) continue;
+    const { x, y } = cannon.position;
+    const a = cannon.angle;
+    const hw = 60, hh = 20;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+
+    const isLoading = cannon.isLoading;
+    const charge = isLoading ? (0.5 + Math.sin(now * 6) * 0.5) : 0;
+
+    // Body glow when loading
+    if (isLoading) {
+      const loadGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, hw * 1.5);
+      loadGrad.addColorStop(0, `rgba(255,140,0,${charge * 0.35})`);
+      loadGrad.addColorStop(1, 'rgba(255,100,0,0)');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, hw * 1.5, hh * 2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = loadGrad;
+      ctx.fill();
+    }
+
+    // Main barrel body
+    const barrelGrad = ctx.createLinearGradient(-hw, -hh, hw, hh);
+    barrelGrad.addColorStop(0, isLoading ? '#b45309' : '#1e3a5f');
+    barrelGrad.addColorStop(0.4, isLoading ? '#d97706' : '#1e40af');
+    barrelGrad.addColorStop(1, isLoading ? '#92400e' : '#0f172a');
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 6);
+    ctx.fillStyle = barrelGrad;
+    ctx.fill();
+
+    // Barrel rings (3 rings along barrel)
+    for (let r = 0; r < 3; r++) {
+      const rx = -hw + 22 + r * 26;
+      ctx.beginPath();
+      ctx.ellipse(rx, 0, 6, hh, 0, 0, Math.PI * 2);
+      ctx.fillStyle = isLoading
+        ? `rgba(251,191,36,${0.5 + Math.sin(now * 5 + r) * 0.3})`
+        : `rgba(56,189,248,${0.3 + Math.sin(now * 2 + r * 1.2) * 0.15})`;
+      ctx.fill();
+    }
+
+    // Muzzle flash when loading
+    if (isLoading) {
+      const muzzleAlpha = 0.4 + Math.sin(now * 8) * 0.4;
+      const mgGrad = ctx.createRadialGradient(hw, 0, 0, hw, 0, 22);
+      mgGrad.addColorStop(0, `rgba(255,220,50,${muzzleAlpha})`);
+      mgGrad.addColorStop(0.5, `rgba(255,120,0,${muzzleAlpha * 0.6})`);
+      mgGrad.addColorStop(1, 'rgba(255,80,0,0)');
+      ctx.beginPath();
+      ctx.arc(hw, 0, 22, 0, Math.PI * 2);
+      ctx.fillStyle = mgGrad;
+      ctx.fill();
+    }
+
+    // Energy stream lines along barrel
+    const streamAlpha = isLoading ? (0.5 + charge * 0.5) : (0.15 + Math.sin(now * 1.5) * 0.08);
+    ctx.strokeStyle = isLoading
+      ? `rgba(255,200,0,${streamAlpha})`
+      : `rgba(0,188,255,${streamAlpha})`;
+    ctx.lineWidth = 1.5;
+    for (let s = 0; s < 4; s++) {
+      const sy = -hh + 8 + s * 8;
+      ctx.beginPath();
+      ctx.moveTo(-hw + 10, sy);
+      ctx.lineTo(hw - 10, sy);
+      ctx.stroke();
+    }
+
+    // Muzzle end cap
+    ctx.beginPath();
+    ctx.ellipse(hw, 0, 7, hh, 0, 0, Math.PI * 2);
+    ctx.fillStyle = isLoading ? '#fbbf24' : '#0ea5e9';
+    ctx.fill();
+
+    // Border
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 6);
+    ctx.strokeStyle = isLoading
+      ? `rgba(251,191,36,${0.6 + charge * 0.4})`
+      : `rgba(56,189,248,${0.35 + Math.sin(now * 1.8) * 0.15})`;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = isLoading ? 16 : 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  }
+});
+
+// --- 🖥️ Encoder Animated Visual ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const body of spawnedBodies) {
+    if (!body.isEncoder) continue;
+    const { x, y } = body.position;
+    const a = body.angle;
+    const hw = 40, hh = 40;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+
+    const hasCode = !!(body.code && body.code.trim().length > 0);
+    const pulse = 0.5 + Math.sin(now * 2.5) * 0.3;
+    const fastPulse = 0.5 + Math.sin(now * 7) * 0.5;
+
+    // Outer field glow
+    const outerGrad = ctx.createRadialGradient(0, 0, hw * 0.5, 0, 0, hw * 2.0);
+    outerGrad.addColorStop(0, `rgba(${hasCode ? '120,60,255' : '40,80,180'},${pulse * 0.3})`);
+    outerGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, hw * 2.0, 0, Math.PI * 2);
+    ctx.fillStyle = outerGrad;
+    ctx.fill();
+
+    // Body
+    const bgGrad = ctx.createLinearGradient(-hw, -hh, hw, hh);
+    bgGrad.addColorStop(0, hasCode ? '#2d1b4e' : '#0f1929');
+    bgGrad.addColorStop(0.5, hasCode ? '#1e0938' : '#0a1628');
+    bgGrad.addColorStop(1, '#050810');
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 8);
+    ctx.fillStyle = bgGrad;
+    ctx.fill();
+
+    // Scanline effect (4 horizontal lines scrolling)
+    const scanOffset = (now * 20) % (hh * 2);
+    ctx.strokeStyle = `rgba(${hasCode ? '160,100,255' : '0,188,255'},0.12)`;
+    ctx.lineWidth = 1;
+    for (let s = 0; s < 8; s++) {
+      const sy = -hh + ((s * 10 + scanOffset) % (hh * 2));
+      ctx.beginPath();
+      ctx.moveTo(-hw + 4, sy);
+      ctx.lineTo(hw - 4, sy);
+      ctx.stroke();
+    }
+
+    // Code dot matrix (3×4 grid of dots mimicking a display)
+    const dotColor = hasCode
+      ? `rgba(180,120,255,${0.5 + fastPulse * 0.5})`
+      : `rgba(0,150,200,${0.3 + pulse * 0.3})`;
+    for (let dr = 0; dr < 4; dr++) {
+      for (let dc = 0; dc < 5; dc++) {
+        const dotActive = hasCode
+          ? Math.sin(now * 3 + dr * 1.7 + dc * 2.3) > 0.2
+          : Math.sin(now * 1.5 + dr + dc) > 0.5;
+        if (!dotActive) continue;
+        ctx.beginPath();
+        ctx.arc(-16 + dc * 8, -10 + dr * 6, 1.8, 0, Math.PI * 2);
+        ctx.fillStyle = dotColor;
+        ctx.fill();
+      }
+    }
+
+    // Rotating compass ring
+    ctx.save();
+    ctx.rotate(now * (hasCode ? 1.8 : 0.6));
+    ctx.beginPath();
+    ctx.arc(0, 0, hw * 0.7, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${hasCode ? '160,80,255' : '0,188,255'},${0.2 + pulse * 0.15})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 8]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 4 tick marks on ring
+    for (let t = 0; t < 4; t++) {
+      const ta = (t / 4) * Math.PI * 2;
+      const r1 = hw * 0.65, r2 = hw * 0.78;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(ta) * r1, Math.sin(ta) * r1);
+      ctx.lineTo(Math.cos(ta) * r2, Math.sin(ta) * r2);
+      ctx.strokeStyle = `rgba(${hasCode ? '200,130,255' : '80,220,255'},0.7)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Center beam emitter dot
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    const centerGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 5);
+    centerGrad.addColorStop(0, `rgba(255,255,255,${0.7 + fastPulse * 0.3})`);
+    centerGrad.addColorStop(1, `rgba(${hasCode ? '160,80,255' : '0,200,255'},0.4)`);
+    ctx.fillStyle = centerGrad;
+    ctx.shadowColor = hasCode ? 'rgba(160,80,255,0.9)' : 'rgba(0,200,255,0.8)';
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Border
+    ctx.beginPath();
+    ctx.roundRect(-hw, -hh, hw * 2, hh * 2, 8);
+    ctx.strokeStyle = `rgba(${hasCode ? '160,80,255' : '0,188,255'},${0.5 + pulse * 0.35})`;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  }
+});
+
+// --- 🕯️ Torch Animated Visual ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const torch of torches) {
+    if (!spawnedBodies.includes(torch)) continue;
+    const { x, y } = torch.position;
+    const a = torch.angle;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a);
+
+    const flicker = Math.sin(now * 11) * 0.15 + Math.sin(now * 7.3) * 0.1;
+
+    // Shaft body
+    const shaftGrad = ctx.createLinearGradient(-6, -60, 6, 60);
+    shaftGrad.addColorStop(0, '#92400e');
+    shaftGrad.addColorStop(0.5, '#78350f');
+    shaftGrad.addColorStop(1, '#451a03');
+    ctx.beginPath();
+    ctx.roundRect(-6, -50, 12, 100, 3);
+    ctx.fillStyle = shaftGrad;
+    ctx.fill();
+
+    // Wood grain lines
+    ctx.strokeStyle = 'rgba(120,60,10,0.5)';
+    ctx.lineWidth = 1;
+    for (let g = 0; g < 4; g++) {
+      ctx.beginPath();
+      ctx.moveTo(-5, -40 + g * 22);
+      ctx.lineTo(5, -38 + g * 22);
+      ctx.stroke();
+    }
+
+    // Wrap bands
+    for (let b = 0; b < 3; b++) {
+      ctx.beginPath();
+      ctx.rect(-7, -30 + b * 24, 14, 5);
+      ctx.fillStyle = `rgba(161,100,40,0.7)`;
+      ctx.fill();
+    }
+
+    // Top ember cup
+    ctx.beginPath();
+    ctx.ellipse(0, -50, 9, 5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#b45309';
+    ctx.fill();
+
+    // Flame halo glow
+    const haloAlpha = 0.3 + flicker * 0.5;
+    const haloGrad = ctx.createRadialGradient(0, -58, 2, 0, -58, 28);
+    haloGrad.addColorStop(0, `rgba(255,200,50,${haloAlpha * 0.8})`);
+    haloGrad.addColorStop(0.5, `rgba(255,100,0,${haloAlpha * 0.4})`);
+    haloGrad.addColorStop(1, 'rgba(255,50,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, -58, 28, 0, Math.PI * 2);
+    ctx.fillStyle = haloGrad;
+    ctx.fill();
+
+    // Flame shape (teardrop)
+    const fh = 18 + flicker * 8;
+    ctx.beginPath();
+    ctx.moveTo(0, -50 - fh);
+    ctx.bezierCurveTo(
+      6 + flicker * 4, -50 - fh * 0.6,
+      8, -52,
+      0, -50
+    );
+    ctx.bezierCurveTo(
+      -8, -52,
+      -6 - flicker * 4, -50 - fh * 0.6,
+      0, -50 - fh
+    );
+    const flameGrad = ctx.createLinearGradient(0, -50 - fh, 0, -50);
+    flameGrad.addColorStop(0, `rgba(255,255,180,${0.9 + flicker * 0.1})`);
+    flameGrad.addColorStop(0.3, `rgba(255,180,0,0.9)`);
+    flameGrad.addColorStop(0.7, `rgba(255,80,0,0.8)`);
+    flameGrad.addColorStop(1, `rgba(200,20,0,0.5)`);
+    ctx.fillStyle = flameGrad;
+    ctx.shadowColor = 'rgba(255,140,0,0.8)';
+    ctx.shadowBlur = 14;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Shaft border
+    ctx.beginPath();
+    ctx.roundRect(-6, -50, 12, 100, 3);
+    ctx.strokeStyle = 'rgba(180,100,30,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+});
+
+// --- 🔥 Flame Particle Enhanced Visual (overlay on existing) ---
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  // Draw embers on actively burning bodies
+  for (const body of burningBodies) {
+    if (!spawnedBodies.includes(body)) continue;
+    const { x, y } = body.position;
+
+    // Ember sparks orbiting the burning body
+    for (let e = 0; e < 4; e++) {
+      const eAngle = now * (3 + e * 0.7) + (e / 4) * Math.PI * 2;
+      const er = 25 + Math.sin(now * 4 + e) * 8;
+      const ex = x + Math.cos(eAngle) * er;
+      const ey = y + Math.sin(eAngle) * er * 0.5 - 10;
+      const eAlpha = 0.4 + Math.sin(now * 6 + e * 1.5) * 0.3;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(ex, ey, 2 + Math.sin(now * 8 + e) * 1, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,${120 + (e * 30)|0},20,${eAlpha})`;
+      ctx.shadowColor = 'rgba(255,100,0,0.6)';
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Heat distortion ring at base
+    const heatAlpha = 0.12 + Math.sin(now * 3) * 0.06;
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(x, y + 10, 28 + Math.sin(now * 4) * 4, 8, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,140,0,${heatAlpha})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+});
+
+// --- 🪢 Rope Enhanced Visual (replaces the existing rope renderer) ---
+// Remove old rope renderer and replace with animated neon tether
+
 /* =========================
    DELETE BUTTON
 ========================= */
 const deleteBtn = document.createElement("button");
-deleteBtn.id="delete-object"; deleteBtn.textContent="DELETE";
+deleteBtn.id="delete-object"; deleteBtn.textContent="PURGE OBJECT DATA";
 Object.assign(deleteBtn.style,{
-  marginTop:"10px", width:"100%", padding:"8px", borderRadius:"8px", border:"none",
-  background:"linear-gradient(90deg,#ff3b3b,#cc0000)", color:"#fff", fontWeight:"700", cursor:"pointer",
+  marginTop:"16px", width:"100%", padding:"12px", borderRadius:"10px", border:"none",
+  background:"rgba(239, 68, 68, 0.1)", color:"#ef4444", border:"1px solid rgba(239, 68, 68, 0.25)",
+  fontFamily:"'Orbitron', sans-serif", fontSize:"11px", fontWeight:"700", cursor:"pointer",
   transition:"0.3s", letterSpacing:"1px"
 });
-deleteBtn.addEventListener("mouseenter",()=>{ deleteBtn.style.filter="brightness(1.2)"; deleteBtn.style.transform="scale(1.05)"; });
-deleteBtn.addEventListener("mouseleave",()=>{ deleteBtn.style.filter="none"; deleteBtn.style.transform="scale(1)"; });
+deleteBtn.addEventListener("mouseenter",()=>{ 
+  deleteBtn.style.background="rgba(239, 68, 68, 0.2)"; 
+  deleteBtn.style.boxShadow="0 0 12px rgba(239, 68, 68, 0.2)"; 
+});
+deleteBtn.addEventListener("mouseleave",()=>{ 
+  deleteBtn.style.background="rgba(239, 68, 68, 0.1)"; 
+  deleteBtn.style.boxShadow="none"; 
+});
 document.getElementById("prop-panel").appendChild(deleteBtn);
 
 deleteBtn.addEventListener("click",()=>{
   if(!selectedBody) return;
   const name = selectedBody.label || "this object";
-  if(confirm(`⚠️ Delete "${name}" permanently?`)){
+  if(confirm(`⚠️ Purge execution matrix data for "${name}" permanently?`)){
     World.remove(world,selectedBody);
     spawnedBodies = spawnedBodies.filter(b=>b!==selectedBody);
     if(typeof spawnedTNTs!=="undefined") spawnedTNTs = spawnedTNTs.filter(b=>b!==selectedBody);
@@ -2168,7 +2602,7 @@ document.getElementById('apply-props').addEventListener('click',()=>{
   const ctx=render.context;
   ctx.save(); ctx.beginPath();
   ctx.arc(selectedBody.position.x,selectedBody.position.y,28,0,2*Math.PI);
-  ctx.lineWidth=3; ctx.strokeStyle='rgba(0,255,255,0.6)'; ctx.stroke(); ctx.restore();
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(0,188,255,0.6)'; ctx.stroke(); ctx.restore();
 });
 
 /* =========================
