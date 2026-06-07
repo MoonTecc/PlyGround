@@ -753,7 +753,12 @@ document.addEventListener("keydown", e => {
   }
   if (key === "m") {
     if (selectedEncoder) {
-      fireEncoderBeam(selectedEncoder);
+      // Check if the encoder has a .summonai(){} command
+      if (selectedEncoder.code && /\.summonai\s*\(\s*\)\s*\{/.test(selectedEncoder.code)) {
+        fireSummonAI(selectedEncoder);
+      } else {
+        fireEncoderBeam(selectedEncoder);
+      }
     }
   }
 });
@@ -2624,4 +2629,635 @@ document.addEventListener('click',ev=>{
 
 document.querySelectorAll('.object-item').forEach(it=>{
   it.addEventListener('dragend',()=>{ setTimeout(()=>{ mouseConstraint.body=null; },10); });
+});
+
+/* =====================================================
+   🤖 MODEL SYSTEM — SummonAI
+   Spawned via Encoder command: .summonai(){ m.commands }
+   Press M while Encoder is selected → Model spawns at mouse
+   with animation. Supports: m.move(), m.goto(), m.pickup(), m.bring()
+===================================================== */
+
+const models = []; // all active model instances
+let summonAnimations = []; // spawn particle animations
+
+// ---------- Parse .summonai(){} block from encoder code ----------
+function parseSummonAIBlock(code) {
+  const match = code.match(/\.summonai\s*\(\s*\)\s*\{([\s\S]*)\}/);
+  if (!match) return null;
+  return match[1].trim();
+}
+
+// ---------- Parse model commands from inside {} ----------
+function parseModelCommands(block) {
+  const cmds = [];
+  // Split by semicolons or newlines, trim whitespace
+  const lines = block.split(/[\n;]+/).map(l => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    // m.move(value)
+    let m = line.match(/^m\.move\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'move', value: parseFloat(m[1]) || 50 }); continue; }
+    // m.goto(label)
+    m = line.match(/^m\.goto\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'goto', label: m[1].replace(/['"]/g, '').trim() }); continue; }
+    // m.pickup(label)
+    m = line.match(/^m\.pickup\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'pickup', label: m[1].replace(/['"]/g, '').trim() }); continue; }
+    // m.bring()
+    m = line.match(/^m\.bring\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'bring' }); continue; }
+  }
+  return cmds;
+}
+
+// ---------- Find body by label ----------
+function findBodyByLabel(label) {
+  return spawnedBodies.find(b => b.label && b.label.toLowerCase() === label.toLowerCase()) || null;
+}
+
+// ---------- Summon Particle Animation ----------
+function createSummonAnimation(x, y, onComplete) {
+  const anim = {
+    x, y,
+    age: 0,
+    maxAge: 80,
+    rings: Array.from({ length: 5 }, (_, i) => ({
+      r: 0,
+      maxR: 60 + i * 20,
+      speed: 4 + i * 1.5,
+      alpha: 0.9 - i * 0.12,
+      color: [0, 255 - i * 30, 200 + i * 10]
+    })),
+    particles: Array.from({ length: 24 }, (_, i) => {
+      const angle = (i / 24) * Math.PI * 2;
+      return {
+        angle,
+        r: 0,
+        maxR: 70 + Math.random() * 40,
+        speed: 3 + Math.random() * 2.5,
+        alpha: 1,
+        size: 2 + Math.random() * 3,
+        color: i % 3 === 0 ? [100, 255, 220] : i % 3 === 1 ? [80, 160, 255] : [200, 100, 255]
+      };
+    }),
+    done: false,
+    onComplete
+  };
+  summonAnimations.push(anim);
+}
+
+// ---------- Render Summon Animations ----------
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (let i = summonAnimations.length - 1; i >= 0; i--) {
+    const anim = summonAnimations[i];
+    anim.age++;
+
+    const progress = anim.age / anim.maxAge;
+
+    ctx.save();
+
+    // Expanding shockwave rings
+    for (const ring of anim.rings) {
+      if (ring.r < ring.maxR) ring.r += ring.speed;
+      const alpha = ring.alpha * (1 - progress * 0.9);
+      ctx.beginPath();
+      ctx.arc(anim.x, anim.y, ring.r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${ring.color[0]},${ring.color[1]},${ring.color[2]},${alpha})`;
+      ctx.lineWidth = 3 * (1 - ring.r / ring.maxR) + 1;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Flying particles
+    for (const p of anim.particles) {
+      if (p.r < p.maxR) p.r += p.speed;
+      p.alpha = Math.max(0, 1 - p.r / p.maxR);
+      const px = anim.x + Math.cos(p.angle) * p.r;
+      const py = anim.y + Math.sin(p.angle) * p.r;
+      ctx.beginPath();
+      ctx.arc(px, py, p.size * p.alpha, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.color[0]},${p.color[1]},${p.color[2]},${p.alpha})`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Bright central flash fade-in/out
+    if (progress < 0.5) {
+      const flashAlpha = progress * 2;
+      const flashGrad = ctx.createRadialGradient(anim.x, anim.y, 0, anim.x, anim.y, 40);
+      flashGrad.addColorStop(0, `rgba(255,255,255,${flashAlpha * 0.9})`);
+      flashGrad.addColorStop(0.4, `rgba(100,220,255,${flashAlpha * 0.6})`);
+      flashGrad.addColorStop(1, `rgba(0,100,255,0)`);
+      ctx.beginPath();
+      ctx.arc(anim.x, anim.y, 40, 0, Math.PI * 2);
+      ctx.fillStyle = flashGrad;
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    if (anim.age >= anim.maxAge) {
+      if (anim.onComplete) anim.onComplete();
+      summonAnimations.splice(i, 1);
+    }
+  }
+});
+
+// ---------- Spawn Model ----------
+function spawnModel(x, y, commands, encoderRef) {
+  const model = Bodies.rectangle(x, y - 10, 40, 60, {
+    restitution: 0.3,
+    friction: 0.7,
+    frictionAir: 0.08,
+    density: 0.004,
+    render: {
+      fillStyle: 'rgba(0,0,0,0)',
+      strokeStyle: 'rgba(0,0,0,0)',
+      lineWidth: 0
+    },
+    label: 'Model'
+  });
+
+  model.isModel = true;
+  model.modelCommands = commands;
+  model.modelCmdIndex = 0;
+  model.modelState = 'idle'; // idle | moving | goto | pickup | bring
+  model.pickedUpBody = null;
+  model.targetPos = null;
+  model.moveDir = 1; // 1 = right, -1 = left
+  model.encoder = encoderRef;
+  model._phase = Math.random() * Math.PI * 2;
+  model._spawnTime = performance.now();
+  model._isExecuting = false;
+
+  World.add(world, model);
+  spawnedBodies.push(model);
+  models.push(model);
+
+  // Start executing commands after spawn animation settles
+  setTimeout(() => executeNextModelCommand(model), 600);
+
+  return model;
+}
+
+// ---------- Execute model command queue ----------
+function executeNextModelCommand(model) {
+  if (!spawnedBodies.includes(model)) return;
+  if (model.modelCmdIndex >= model.modelCommands.length) {
+    model.modelState = 'idle';
+    return;
+  }
+
+  const cmd = model.modelCommands[model.modelCmdIndex];
+  model.modelCmdIndex++;
+
+  switch (cmd.type) {
+    case 'move': {
+      // Move horizontally by `value` pixels (positive=right, negative=left)
+      const dist = cmd.value;
+      model.modelState = 'moving';
+      const targetX = model.position.x + dist;
+      model._moveTarget = targetX;
+      model.moveDir = dist > 0 ? 1 : -1;
+      // We'll track via afterUpdate
+      break;
+    }
+    case 'goto': {
+      const target = findBodyByLabel(cmd.label);
+      if (!target) {
+        // skip to next
+        executeNextModelCommand(model);
+        return;
+      }
+      model.modelState = 'goto';
+      model._gotoTarget = target;
+      model.moveDir = target.position.x > model.position.x ? 1 : -1;
+      break;
+    }
+    case 'pickup': {
+      const target = findBodyByLabel(cmd.label);
+      if (!target || target.isStatic) {
+        executeNextModelCommand(model);
+        return;
+      }
+      model.modelState = 'pickup';
+      model._pickupTarget = target;
+      model.moveDir = target.position.x > model.position.x ? 1 : -1;
+      break;
+    }
+    case 'bring': {
+      if (!model.pickedUpBody) {
+        executeNextModelCommand(model);
+        return;
+      }
+      // Bring = move back to encoder position
+      const enc = model.encoder;
+      if (enc) {
+        model.modelState = 'bring';
+        model._bringTarget = enc.position;
+        model.moveDir = enc.position.x > model.position.x ? 1 : -1;
+      } else {
+        executeNextModelCommand(model);
+      }
+      break;
+    }
+    default:
+      executeNextModelCommand(model);
+  }
+}
+
+// ---------- Model physics update ----------
+Events.on(engine, 'afterUpdate', () => {
+  const MOVE_SPEED = 3;
+  const ARRIVE_DIST = 24;
+  const PICKUP_DIST = 50;
+
+  for (const model of models) {
+    if (!spawnedBodies.includes(model)) continue;
+
+    // Keep picked-up body glued above model
+    if (model.pickedUpBody && spawnedBodies.includes(model.pickedUpBody)) {
+      Body.setPosition(model.pickedUpBody, {
+        x: model.position.x,
+        y: model.position.y - 60
+      });
+      Body.setVelocity(model.pickedUpBody, { x: 0, y: 0 });
+      Body.setStatic(model.pickedUpBody, true);
+    }
+
+    switch (model.modelState) {
+      case 'moving': {
+        const dx = model._moveTarget - model.position.x;
+        if (Math.abs(dx) < ARRIVE_DIST) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+        } else {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'goto': {
+        const gt = model._gotoTarget;
+        if (!gt || !spawnedBodies.includes(gt)) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+          break;
+        }
+        const dx = gt.position.x - model.position.x;
+        model.moveDir = dx > 0 ? 1 : -1;
+        if (Math.abs(dx) < ARRIVE_DIST) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+        } else {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'pickup': {
+        const pt = model._pickupTarget;
+        if (!pt || !spawnedBodies.includes(pt)) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+          break;
+        }
+        const dx = pt.position.x - model.position.x;
+        const dist = Math.abs(dx);
+        model.moveDir = dx > 0 ? 1 : -1;
+        if (dist < PICKUP_DIST) {
+          // Pick it up!
+          model.pickedUpBody = pt;
+          Body.setStatic(pt, true);
+          Body.setPosition(pt, { x: model.position.x, y: model.position.y - 60 });
+          model.modelState = 'idle';
+          model._pickupTarget = null;
+          executeNextModelCommand(model);
+        } else {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'bring': {
+        const bt = model._bringTarget || (model.encoder && model.encoder.position);
+        if (!bt) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+          break;
+        }
+        const dx = bt.x - model.position.x;
+        model.moveDir = dx > 0 ? 1 : -1;
+        if (Math.abs(dx) < ARRIVE_DIST) {
+          // Drop the item here
+          if (model.pickedUpBody && spawnedBodies.includes(model.pickedUpBody)) {
+            Body.setStatic(model.pickedUpBody, false);
+            Body.setPosition(model.pickedUpBody, {
+              x: model.position.x,
+              y: model.position.y - 50
+            });
+          }
+          model.pickedUpBody = null;
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+        } else {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+    }
+  }
+});
+
+// ---------- Render Model (custom animated draw) ----------
+Events.on(render, 'afterRender', () => {
+  const ctx = render.context;
+  const now = performance.now() / 1000;
+
+  for (const model of models) {
+    if (!spawnedBodies.includes(model)) continue;
+
+    const { x, y } = model.position;
+    const isMoving = model.modelState !== 'idle';
+    const walkCycle = isMoving ? Math.sin(now * 10) : 0;
+    const dir = model.moveDir;
+    const hasItem = !!model.pickedUpBody;
+
+    // Scale-in animation on spawn
+    const spawnAge = (performance.now() - model._spawnTime) / 1000;
+    const scale = Math.min(1, spawnAge * 3);
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale * dir, scale); // flip based on direction
+    ctx.translate(0, 0);
+
+    // === BODY (torso) ===
+    const bodyGrad = ctx.createLinearGradient(-15, -28, 15, 10);
+    bodyGrad.addColorStop(0, 'rgba(0,220,255,0.95)');
+    bodyGrad.addColorStop(0.5, 'rgba(0,140,200,0.9)');
+    bodyGrad.addColorStop(1, 'rgba(0,80,160,0.85)');
+    ctx.beginPath();
+    ctx.roundRect(-15, -28, 30, 38, 5);
+    ctx.fillStyle = bodyGrad;
+    ctx.shadowColor = 'rgba(0,200,255,0.7)';
+    ctx.shadowBlur = 14;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Chest panel lines
+    ctx.strokeStyle = 'rgba(100,255,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let li = 0; li < 3; li++) {
+      ctx.beginPath();
+      ctx.moveTo(-10, -18 + li * 10);
+      ctx.lineTo(10, -18 + li * 10);
+      ctx.stroke();
+    }
+
+    // Chest glow dot (status indicator)
+    const statusColor = hasItem ? 'rgba(255,200,0,0.9)' : isMoving ? 'rgba(0,255,150,0.9)' : 'rgba(100,200,255,0.7)';
+    ctx.beginPath();
+    ctx.arc(0, -14, 4, 0, Math.PI * 2);
+    ctx.fillStyle = statusColor;
+    ctx.shadowColor = statusColor;
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // === HEAD ===
+    const headGrad = ctx.createLinearGradient(-12, -56, 12, -32);
+    headGrad.addColorStop(0, 'rgba(30,240,255,0.98)');
+    headGrad.addColorStop(1, 'rgba(0,100,200,0.9)');
+    ctx.beginPath();
+    ctx.roundRect(-12, -56, 24, 22, 4);
+    ctx.fillStyle = headGrad;
+    ctx.shadowColor = 'rgba(0,220,255,0.8)';
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Eyes
+    const eyePulse = 0.7 + Math.sin(now * 2.5 + model._phase) * 0.3;
+    for (let eye = -1; eye <= 1; eye += 2) {
+      ctx.beginPath();
+      ctx.ellipse(eye * 5, -46, 3, 3, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${eyePulse})`;
+      ctx.shadowColor = 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Inner iris
+      ctx.beginPath();
+      ctx.arc(eye * 5, -46, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = isMoving ? 'rgba(0,255,100,1)' : 'rgba(100,200,255,1)';
+      ctx.fill();
+    }
+
+    // Antenna
+    const antWave = Math.sin(now * 4 + model._phase) * 4;
+    ctx.beginPath();
+    ctx.moveTo(0, -56);
+    ctx.lineTo(antWave, -68);
+    ctx.strokeStyle = 'rgba(100,240,255,0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(antWave, -70, 3, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,100,${0.7 + Math.sin(now * 6) * 0.3})`;
+    ctx.shadowColor = 'rgba(255,255,0,0.8)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // === ARMS ===
+    const armSwing = walkCycle * 18;
+    // Left arm
+    ctx.save();
+    ctx.translate(-15, -20);
+    ctx.rotate((armSwing - 10) * Math.PI / 180);
+    ctx.beginPath();
+    ctx.roundRect(-4, 0, 8, 22, 3);
+    ctx.fillStyle = 'rgba(0,180,230,0.85)';
+    ctx.fill();
+    // Hand
+    ctx.beginPath();
+    ctx.arc(0, 23, 5, 0, Math.PI * 2);
+    ctx.fillStyle = hasItem ? 'rgba(255,200,0,0.9)' : 'rgba(0,220,255,0.9)';
+    ctx.fill();
+    ctx.restore();
+
+    // Right arm
+    ctx.save();
+    ctx.translate(15, -20);
+    ctx.rotate((-armSwing + 10) * Math.PI / 180);
+    ctx.beginPath();
+    ctx.roundRect(-4, 0, 8, 22, 3);
+    ctx.fillStyle = 'rgba(0,180,230,0.85)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 23, 5, 0, Math.PI * 2);
+    ctx.fillStyle = hasItem ? 'rgba(255,200,0,0.9)' : 'rgba(0,220,255,0.9)';
+    ctx.fill();
+    ctx.restore();
+
+    // === LEGS ===
+    const legSwing = walkCycle * 20;
+    for (let leg = -1; leg <= 1; leg += 2) {
+      ctx.save();
+      ctx.translate(leg * 8, 10);
+      ctx.rotate((leg * legSwing) * Math.PI / 180);
+      ctx.beginPath();
+      ctx.roundRect(-5, 0, 10, 24, 3);
+      ctx.fillStyle = 'rgba(0,140,200,0.9)';
+      ctx.fill();
+      // Foot
+      ctx.beginPath();
+      ctx.roundRect(-6, 23, 12, 7, 2);
+      ctx.fillStyle = 'rgba(0,100,180,0.95)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // === Label above head ===
+    ctx.save();
+    ctx.scale(1 / (scale * dir), 1 / scale); // undo scale for text
+    ctx.font = 'bold 10px "Segoe UI", sans-serif';
+    ctx.fillStyle = 'rgba(180,255,255,0.85)';
+    ctx.textAlign = 'center';
+    const stateLabel = model.modelState === 'idle' ? 'MODEL' :
+      model.modelState === 'moving' ? 'MOVING...' :
+      model.modelState === 'goto' ? `GOTO: ${model._gotoTarget ? model._gotoTarget.label : '?'}` :
+      model.modelState === 'pickup' ? `PICKUP: ${model._pickupTarget ? model._pickupTarget.label : '?'}` :
+      model.modelState === 'bring' ? 'BRINGING...' : 'MODEL';
+    ctx.fillText(stateLabel, 0, -78 * scale);
+    ctx.restore();
+
+    // === Footstep glow when moving ===
+    if (isMoving) {
+      ctx.save();
+      ctx.scale(1, 1);
+      const footGlow = ctx.createRadialGradient(0, 32, 0, 0, 32, 20);
+      footGlow.addColorStop(0, `rgba(0,200,255,${0.3 + Math.abs(walkCycle) * 0.2})`);
+      footGlow.addColorStop(1, 'rgba(0,200,255,0)');
+      ctx.beginPath();
+      ctx.ellipse(0, 32, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = footGlow;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+});
+
+// ---------- fireSummonAI — called when M is pressed with .summonai(){} ----------
+function fireSummonAI(encoder) {
+  const block = parseSummonAIBlock(encoder.code);
+  if (block === null) {
+    document.getElementById('console-feedback').textContent = 'No .summonai(){} block found.';
+    return;
+  }
+
+  const commands = parseModelCommands(block);
+  const spawnX = mouse.position.x;
+  const spawnY = mouse.position.y;
+
+  // Visual: change encoder texture/glow to purple "active" state
+  encoder._summonActive = true;
+  setTimeout(() => { encoder._summonActive = false; }, 2000);
+
+  // Show feedback
+  document.getElementById('console-feedback').textContent = `⚡ Summoning Model at (${spawnX|0}, ${spawnY|0}) with ${commands.length} command(s)…`;
+
+  // Fire summon animation, spawn model on completion
+  createSummonAnimation(spawnX, spawnY, () => {
+    spawnModel(spawnX, spawnY, commands, encoder);
+  });
+}
+
+// ---------- Add .summonai to encoder console autofill ----------
+(function addSummonAIAutofill() {
+  const autofillDiv = document.getElementById('console-autofill');
+  if (!autofillDiv) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'autofill-btn';
+  btn.textContent = '.summonai(){ m.move(200) }';
+  btn.style.background = 'rgba(120,60,255,0.12)';
+  btn.style.borderColor = 'rgba(160,80,255,0.4)';
+  btn.style.color = '#c8a2ff';
+  btn.addEventListener('click', () => {
+    const input = document.getElementById('encoder-console-input');
+    if (!input) return;
+    input.value = '.summonai(){\n  m.goto(Box)\n  m.pickup(Box)\n  m.bring()\n}';
+    input.focus();
+  });
+  autofillDiv.appendChild(btn);
+
+  // Inject summonai section into the console guide
+  const guide = document.querySelector('.console-guide');
+  if (guide) {
+    const modelSection = document.createElement('div');
+    modelSection.style.cssText = 'margin-bottom:10px;padding:8px;background:rgba(120,60,255,0.07);border-left:2px solid rgba(160,80,255,0.5);border-radius:6px;';
+    modelSection.innerHTML = `
+      <strong style="color:#c084fc;font-size:12px">🤖 MODEL (SUMMONAI)</strong><br>
+      <code>.summonai(){ commands }</code> — summon AI entity<br>
+      <code>m.move(px)</code> — move by pixels (±)<br>
+      <code>m.goto(label)</code> — walk to named object<br>
+      <code>m.pickup(label)</code> — walk to & lift object<br>
+      <code>m.bring()</code> — carry item back to encoder<br>
+      <span style="font-size:11px;opacity:0.75">Press <strong>M</strong> to summon at mouse pointer.</span>
+    `;
+    guide.insertBefore(modelSection, guide.firstChild.nextSibling);
+  }
+})();
+
+// ---------- Add Model to sidebar Objects tab ----------
+(function addModelToSidebar() {
+  const objectsTab = document.getElementById('tab-objects');
+  if (!objectsTab) return;
+  const item = document.createElement('div');
+  item.className = 'object-item';
+  item.setAttribute('draggable', 'true');
+  item.setAttribute('data-type', 'model');
+  item.textContent = '🤖 Model';
+  objectsTab.insertBefore(item, objectsTab.querySelector('div[style]'));
+
+  item.addEventListener('dragstart', ev => {
+    ev.dataTransfer.setData('text/plain', 'model');
+  });
+})();
+
+// Hook model into spawnFromType
+const _origSpawnFromType = spawnFromType;
+window.spawnFromType = function(type, x, y) {
+  if (type === 'model') {
+    // Spawn a model directly (idle, no commands)
+    createSummonAnimation(x, y, () => {
+      spawnModel(x, y, [], null);
+    });
+    return;
+  }
+  _origSpawnFromType(type, x, y);
+}
+
+// Override the canvas drop listener to use the new spawnFromType
+// (The existing drop listener calls spawnFromType which is now patched via window.spawnFromType)
+// We need to make the drop call the patched version:
+canvas.addEventListener('drop', ev => {
+  const type = ev.dataTransfer.getData('text/plain');
+  if (type === 'model') {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    createSummonAnimation(x, y, () => spawnModel(x, y, [], null));
+  }
 });

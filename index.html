@@ -73,12 +73,18 @@
   .tab-content { display:none; }
   .tab-content.active { display:block; }
 
+  .object-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 15px;
+  }
+
   .object-item {
     display:flex;
     align-items:center;
     gap:10px;
     padding:10px;
-    margin:8px 0;
     background: rgba(255,255,255,0.02);
     border: 1px solid rgba(255,255,255,0.03);
     border-radius:8px;
@@ -86,6 +92,73 @@
     user-select: none;
   }
   .object-item:active { cursor: grabbing; }
+
+  /* Audio Control Panel Styling */
+  .audio-control-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 12px;
+    margin: 14px 0;
+  }
+  .audio-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .audio-row label {
+    font-size: 13px;
+    color: #cfefff;
+  }
+  .volume-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    cursor: pointer;
+  }
+  .volume-slider::-webkit-slider-runnable-track {
+    background: linear-gradient(90deg, #00ff95, #0077ff);
+    height: 6px;
+    border-radius: 3px;
+  }
+  .volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    margin-top: -4px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+  }
+
+  /* Audio Resume Prompt Overlay */
+  #audio-resume-prompt {
+    position: fixed;
+    top: 75px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(13, 17, 23, 0.9);
+    border: 1px solid #00ff95;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: 14px;
+    color: #ffffff;
+    z-index: 9999;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(0, 255, 149, 0.2);
+    backdrop-filter: blur(8px);
+    transition: opacity 0.3s ease;
+    display: none;
+    align-items: center;
+    gap: 8px;
+  }
 
   .prop-row { display:flex; justify-content:space-between; gap:8px; align-items:center; margin:8px 0; }
   .prop-row label { flex:1; font-size:13px; color:#d7eefe; }
@@ -132,6 +205,10 @@
 </head>
 <body>
 
+<audio id="bgMusic" src="BackGroundMusic.webm" loop></audio>
+
+<div id="audio-resume-prompt">🎵 Click anywhere to resume background music</div>
+
 <div class="navbar">
   <div class="navbar-left">
     <img src="Logo.png" alt="Logo">
@@ -141,14 +218,12 @@
     <button id="delLast">Delete Last</button>
     <button id="delAll">Delete All</button>
     <button id="delMode">Delete Mode: OFF</button>
-    <!-- NEW UI TOGGLE BUTTON (added, doesn't remove anything) -->
     <button id="uiMenuBtn" title="Open UI">☰ UI</button>
   </div>
 </div>
 
 <canvas id="world"></canvas>
 
-<!-- Sidebar UI (sliding from right) -->
 <div id="sidebar" aria-hidden="true">
   <div class="tab-buttons">
     <button class="tab-btn active" data-tab="objects">Objects</button>
@@ -156,26 +231,35 @@
     <button class="tab-btn" data-tab="console">Console</button>
   </div>
 
-  <!-- 🧱 OBJECTS TAB -->
   <div id="tab-objects" class="tab-content active">
     <div class="ui-section-title">Drag & Drop Objects</div>
 
-    <div class="object-item" draggable="true" data-type="box">📦 Box</div>
-    <div class="object-item" draggable="true" data-type="ball">⚪ Ball</div>
-    <div class="object-item" draggable="true" data-type="triangle">🔺 Triangle</div>
-    <div class="object-item" draggable="true" data-type="rod">▬ Rod</div>
-    <div class="object-item" draggable="true" data-type="star">⭐ Star</div>
-    <div class="object-item" draggable="true" data-type="hex">⬣ Hex</div>
-    <div class="object-item" draggable="true" data-type="plank">🪵 Plank</div>
-    <div class="object-item" draggable="true" data-type="miniball">• MiniBall</div>
-    <div class="object-item" draggable="true" data-type="tnt">💣 TNT</div>
-    <div class="object-item" draggable="true" data-type="torch">🕯️ Torch</div>
-    <div class="object-item" draggable="true" data-type="cannon">🔫 Cannon</div>
-    <div class="object-item" draggable="true" data-type="encoder">🖥️ Encoder</div>
-    <div class="object-item" draggable="true" data-type="gravitywell">🌀 Gravity Well</div>
-    <div class="object-item" draggable="true" data-type="portal">🌀 Portal Pair</div>
+    <div class="object-grid">
+      <div class="object-item" draggable="true" data-type="box">📦 Box</div>
+      <div class="object-item" draggable="true" data-type="ball">⚪ Ball</div>
+      <div class="object-item" draggable="true" data-type="triangle">🔺 Triangle</div>
+      <div class="object-item" draggable="true" data-type="rod">▬ Rod</div>
+      <div class="object-item" draggable="true" data-type="star">⭐ Star</div>
+      <div class="object-item" draggable="true" data-type="hex">⬣ Hex</div>
+      <div class="object-item" draggable="true" data-type="plank">🪵 Plank</div>
+      <div class="object-item" draggable="true" data-type="miniball">• MiniBall</div>
+      <div class="object-item" draggable="true" data-type="tnt">💣 TNT</div>
+      <div class="object-item" draggable="true" data-type="torch">🕯️ Torch</div>
+      <div class="object-item" draggable="true" data-type="cannon">🔫 Cannon</div>
+      <div class="object-item" draggable="true" data-type="encoder">🖥️ Encoder</div>
+      <div class="object-item" draggable="true" data-type="gravitywell">🌀 Gravity Well</div>
+      <div class="object-item" draggable="true" data-type="portal">🌀 Portal Pair</div>
+    </div>
 
-    <div style="height:20px"></div>
+    <div class="ui-section-title">Audio Settings</div>
+    <div class="audio-control-panel">
+      <div class="audio-row">
+        <label id="volume-label">🔊 BGM Volume (50%)</label>
+        <input type="range" id="bgm-volume" class="volume-slider" min="0" max="1" step="0.01" value="0.5">
+      </div>
+    </div>
+
+    <div style="height:10px"></div>
     <div class="ui-section-title">Quick Tips</div>
     <div style="font-size:13px;color:#cde8ff;line-height:1.4">
       • Drag items onto the canvas to spawn.<br>
@@ -185,7 +269,6 @@
     </div>
   </div>
 
-  <!-- ⚙️ PROPERTIES TAB -->
   <div id="tab-properties" class="tab-content">
     <div class="ui-section-title">Selected Object</div>
     <div id="no-selection" style="color:#9fbfe6;font-size:13px">
@@ -302,6 +385,91 @@
 </div>
 
 <div class="ui-hint" id="uiHint">Double-click object → properties appear</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const bgMusic = document.getElementById('bgMusic');
+    const volumeSlider = document.getElementById('bgm-volume');
+    const volumeLabel = document.getElementById('volume-label');
+    const resumePrompt = document.getElementById('audio-resume-prompt');
+
+    function updateLabelText(value) {
+      const percentage = Math.round(value * 100);
+      if (percentage === 0) {
+        volumeLabel.textContent = `🔇 Muted (0%)`;
+      } else if (percentage < 50) {
+        volumeLabel.textContent = `🔉 BGM Volume (${percentage}%)`;
+      } else {
+        volumeLabel.textContent = `🔊 BGM Volume (${percentage}%)`;
+      }
+    }
+
+    // Recover volume state
+    const savedVolume = sessionStorage.getItem('bgm_volume_level');
+    if (savedVolume !== null) {
+      bgMusic.volume = savedVolume;
+      volumeSlider.value = savedVolume;
+      updateLabelText(savedVolume);
+    } else {
+      bgMusic.volume = volumeSlider.value;
+    }
+
+    // Recover duration timestamp 
+    const savedTime = sessionStorage.getItem('bgm_playback_time');
+    if (savedTime !== null) {
+      bgMusic.currentTime = parseFloat(savedTime);
+    }
+
+    // Check if music was previously active before refresh
+    const wasPlayingBeforeRefresh = sessionStorage.getItem('bgm_is_playing') === 'true';
+
+    // Track state in real-time
+    bgMusic.addEventListener('timeupdate', () => {
+      sessionStorage.setItem('bgm_playback_time', bgMusic.currentTime);
+    });
+    bgMusic.addEventListener('play', () => {
+      sessionStorage.setItem('bgm_is_playing', 'true');
+    });
+    bgMusic.addEventListener('pause', () => {
+      sessionStorage.setItem('bgm_is_playing', 'false');
+    });
+
+    // Volume slider inputs
+    volumeSlider.addEventListener('input', (e) => {
+      const volumeValue = e.target.value;
+      bgMusic.volume = volumeValue;
+      sessionStorage.setItem('bgm_volume_level', volumeValue);
+      updateLabelText(volumeValue);
+    });
+
+    // Attempt to trigger playback automatically
+    const playAudio = () => {
+      bgMusic.play()
+        .then(() => {
+          // If successful, hide prompt banner completely
+          resumePrompt.style.display = 'none';
+        })
+        .catch(err => {
+          // Chrome blocked it! Show prompt banner if it was playing previously
+          if (wasPlayingBeforeRefresh) {
+            resumePrompt.style.display = 'flex';
+          }
+        });
+    };
+
+    // Run autoplay on load
+    playAudio();
+
+    // Catch-all interaction handler to clear the block rule on any page click
+    const startAudioOnInteraction = () => {
+      bgMusic.play().then(() => {
+        resumePrompt.style.display = 'none';
+      }).catch(err => console.log("Audio contextual lock error."));
+      document.removeEventListener('click', startAudioOnInteraction);
+    };
+    document.addEventListener('click', startAudioOnInteraction);
+  });
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
 <script src="script.js"></script>
