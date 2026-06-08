@@ -1,3 +1,514 @@
+// ============================================================
+// 🔊 SOUND SYSTEM v2 — Web Audio API (Improved)
+// ============================================================
+const SFX = (() => {
+  let ctx = null;
+  let masterGain = null;
+  let reverbNode = null;
+  let compressor = null;
+
+  function getCtx() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const resume = () => { if (ctx.state === 'suspended') ctx.resume(); };
+      document.addEventListener('pointerdown', resume, { once: true });
+      document.addEventListener('keydown', resume, { once: true });
+      _buildGraph();
+    }
+    return ctx;
+  }
+
+  function _buildGraph() {
+    // Compressor → prevents clipping when many sounds overlap
+    compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 10;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.15;
+    compressor.connect(ctx.destination);
+
+    // Master gain
+    masterGain = ctx.createGain();
+    masterGain.gain.value = 0.72;
+    masterGain.connect(compressor);
+
+    // Reverb (short plate — adds depth without muddiness)
+    reverbNode = _makeReverb(1.2, 0.25);
+  }
+
+  // ── Algorithmic reverb via impulse response ──────────────
+  function _makeReverb(duration = 1.5, decay = 0.3) {
+    const c = ctx;
+    const rate = c.sampleRate;
+    const len = Math.floor(rate * duration);
+    const impulse = c.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = impulse.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay * 10);
+      }
+    }
+    const conv = c.createConvolver();
+    conv.buffer = impulse;
+    const wet = c.createGain();
+    wet.gain.value = 0.18;
+    conv.connect(wet);
+    wet.connect(masterGain);
+    return conv;
+  }
+
+  // ── Proximity & spatial helpers ──────────────────────────
+  // mousePos is updated externally by the game loop via SFX.setMousePos()
+  let _mousePos = { x: 0, y: 0 };
+  let _canvasW = window.innerWidth;
+  let _canvasH = window.innerHeight;
+
+  // Returns { vol: 0..1, pan: -1..1 } given a world-space source position.
+  // vol=1 when source is AT the mouse; falls off to MIN_VOL at FAR_DIST.
+  // pan maps horizontal offset to stereo left/right.
+  const MIN_VOL   = 0.10;  // quietest a far-away sound gets (never silent)
+  const FAR_DIST  = 600;   // pixels — beyond this = MIN_VOL
+  const NEAR_DIST = 60;    // pixels — within this = vol 1.0
+
+  function _spatial(sourcePos) {
+    if (!sourcePos) return { vol: 1, pan: 0 };
+    const dx = sourcePos.x - _mousePos.x;
+    const dy = sourcePos.y - _mousePos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Smooth inverse-square-ish falloff clamped between near and far
+    const t = Math.max(0, Math.min(1, (dist - NEAR_DIST) / (FAR_DIST - NEAR_DIST)));
+    const vol = 1 - t * (1 - MIN_VOL); // 1.0 → MIN_VOL
+    // Stereo pan: clamp dx to ±FAR_DIST, map to -1..1
+    const pan = Math.max(-1, Math.min(1, dx / (FAR_DIST * 0.7)));
+    return { vol, pan };
+  }
+
+  // ── Routing helpers ───────────────────────────────────────
+  // Each sound node chain: osc/noise → gainNode → pannerNode → (reverb | master)
+  function _getChainDest(wet, pan) {
+    getCtx();
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    panner.connect(wet ? reverbNode : masterGain);
+    return panner;
+  }
+
+  // ── Polyphonic oscillator with full ADSR + filter sweep ──
+  function osc({
+    type = 'sine', freq = 440, freq2 = null, freqExp = false,
+    gainPeak = 0.4, attack = 0.008, decay = 0.1, sustain = 0.3, release = 0.2,
+    duration = 0.4, detune = 0,
+    filterType = null, filterFreq = null, filterFreq2 = null, filterQ = 1,
+    lfoFreq = 0, lfoDepth = 0,
+    wet = false, delay = 0,
+    vol = 1, pan = 0   // ← proximity-injected
+  } = {}) {
+    const c = getCtx();
+    const t = c.currentTime + delay;
+    const peak = gainPeak * vol;
+    if (peak < 0.0001) return;
+
+    const gainNode = c.createGain();
+    gainNode.gain.setValueAtTime(0.0001, t);
+    gainNode.gain.linearRampToValueAtTime(peak, t + attack);
+    gainNode.gain.linearRampToValueAtTime(peak * sustain, t + attack + decay);
+    gainNode.gain.setValueAtTime(peak * sustain, t + duration);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, t + duration + release);
+
+    const dest = _getChainDest(wet, pan);
+
+    // Optional biquad filter with sweep
+    if (filterType && filterFreq) {
+      const filt = c.createBiquadFilter();
+      filt.type = filterType;
+      filt.frequency.setValueAtTime(filterFreq, t);
+      if (filterFreq2) filt.frequency.exponentialRampToValueAtTime(filterFreq2, t + duration + release);
+      filt.Q.value = filterQ;
+      gainNode.connect(filt);
+      filt.connect(dest);
+    } else {
+      gainNode.connect(dest);
+    }
+
+    // Oscillator
+    const oscillator = c.createOscillator();
+    oscillator.type = type;
+    oscillator.detune.value = detune;
+    if (freqExp) {
+      oscillator.frequency.setValueAtTime(freq, t);
+      if (freq2) oscillator.frequency.exponentialRampToValueAtTime(freq2, t + duration + release);
+    } else {
+      oscillator.frequency.setValueAtTime(freq, t);
+      if (freq2) oscillator.frequency.linearRampToValueAtTime(freq2, t + duration + release);
+    }
+
+    // Optional LFO for vibrato/tremolo
+    if (lfoFreq > 0 && lfoDepth > 0) {
+      const lfo = c.createOscillator();
+      const lfoGain = c.createGain();
+      lfo.frequency.value = lfoFreq;
+      lfoGain.gain.value = lfoDepth;
+      lfo.connect(lfoGain);
+      lfoGain.connect(oscillator.frequency);
+      lfo.start(t);
+      lfo.stop(t + duration + release + 0.05);
+    }
+
+    oscillator.connect(gainNode);
+    oscillator.start(t);
+    oscillator.stop(t + duration + release + 0.05);
+  }
+
+  // ── White/pink noise source with ADSR ────────────────────
+  function noise({
+    gainPeak = 0.3, attack = 0.005, decay = 0.1, sustain = 0.0, release = 0.2,
+    duration = 0.3, filterType = 'bandpass', filterFreq = 1000, filterFreq2 = null, filterQ = 1,
+    wet = false, delay = 0, pink = false,
+    vol = 1, pan = 0   // ← proximity-injected
+  } = {}) {
+    const c = getCtx();
+    const t = c.currentTime + delay;
+    const peak = gainPeak * vol;
+    if (peak < 0.0001) return;
+
+    const bufLen = Math.ceil(c.sampleRate * (duration + release + 0.1));
+    const buf = c.createBuffer(1, bufLen, c.sampleRate);
+    const d = buf.getChannelData(0);
+
+    if (pink) {
+      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+      for (let i = 0; i < bufLen; i++) {
+        const w = Math.random() * 2 - 1;
+        b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+        b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+        b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+        d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11;
+        b6 = w * 0.115926;
+      }
+    } else {
+      for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+    }
+
+    const src = c.createBufferSource();
+    src.buffer = buf;
+
+    const filt = c.createBiquadFilter();
+    filt.type = filterType;
+    filt.frequency.setValueAtTime(filterFreq, t);
+    if (filterFreq2) filt.frequency.exponentialRampToValueAtTime(filterFreq2, t + duration + release);
+    filt.Q.value = filterQ;
+
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + attack);
+    g.gain.linearRampToValueAtTime(peak * Math.max(sustain, 0.001), t + attack + decay);
+    g.gain.setValueAtTime(peak * Math.max(sustain, 0.001), t + duration);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + duration + release);
+
+    const dest = _getChainDest(wet, pan);
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(dest);
+    src.start(t);
+    src.stop(t + duration + release + 0.1);
+  }
+
+  // ── Throttle ──────────────────────────────────────────────
+  const _t = {};
+  function th(key, ms, fn) {
+    const now = Date.now();
+    if (_t[key] && now - _t[key] < ms) return;
+    _t[key] = now;
+    fn();
+  }
+
+  // ── Spread spatial params into every osc/noise call in a fn ──
+  // Usage: withSpatial(pos, () => { osc({...}); noise({...}); })
+  // We temporarily monkey-patch vol/pan defaults by passing them via closure.
+  let _currentVol = 1;
+  let _currentPan = 0;
+
+  // Wraps all osc/noise calls inside fn() with proximity-derived vol & pan.
+  function withSpatial(sourcePos, fn) {
+    const sp = _spatial(sourcePos);
+    _currentVol = sp.vol;
+    _currentPan = sp.pan;
+    fn();
+    _currentVol = 1;
+    _currentPan = 0;
+  }
+
+  // Override osc and noise to inject current spatial values automatically
+  const _oscRaw = osc;
+  const _noiseRaw = noise;
+  // Re-bind so they pick up _currentVol/_currentPan
+  function oscS(params) { _oscRaw({ vol: _currentVol, pan: _currentPan, ...params }); }
+  function noiseS(params) { _noiseRaw({ vol: _currentVol, pan: _currentPan, ...params }); }
+
+  // ==========================================================
+  // PUBLIC SOUNDS  (all accept optional `pos` = {x,y} in world space)
+  // ==========================================================
+  return {
+
+    // Called by the game each frame to keep mouse position fresh
+    setMousePos(x, y) { _mousePos = { x, y }; },
+
+    // ── SPAWN ────────────────────────────────────────────────
+    spawn(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 800, freq2: 400, freqExp: true, gainPeak: 0.35, attack: 0.002, decay: 0.06, sustain: 0, release: 0.12, duration: 0.08, wet: true });
+        oscS({ type: 'triangle', freq: 180, freq2: 80, gainPeak: 0.2, attack: 0.003, decay: 0.08, sustain: 0, release: 0.1, duration: 0.1 });
+        noiseS({ gainPeak: 0.08, attack: 0.002, decay: 0.04, sustain: 0, release: 0.06, duration: 0.06, filterType: 'bandpass', filterFreq: 3000, filterQ: 0.8 });
+      });
+    },
+
+    // ── BOUNCE ───────────────────────────────────────────────
+    bounce(speed = 5, pos) {
+      th('bounce', 35, () => {
+        getCtx();
+        withSpatial(pos, () => {
+          const p = Math.min(speed / 18, 1);
+          const baseFreq = 120 + p * 300;
+          oscS({ type: 'sine', freq: baseFreq, freq2: baseFreq * 0.3, freqExp: true,
+                gainPeak: 0.15 + p * 0.35, attack: 0.001, decay: 0.04 + p * 0.06, sustain: 0, release: 0.08 + p * 0.08, duration: 0.05 + p * 0.05 });
+          noiseS({ gainPeak: 0.05 + p * 0.18, attack: 0.001, decay: 0.02, sustain: 0, release: 0.04, duration: 0.02, filterType: 'highpass', filterFreq: 2000 + p * 3000 });
+          if (p > 0.4) {
+            oscS({ type: 'triangle', freq: 500 + p * 400, freq2: 300, gainPeak: p * 0.1, attack: 0.001, decay: 0.05, sustain: 0, release: 0.15, duration: 0.06, wet: true });
+          }
+        });
+      });
+    },
+
+    // ── DRAG ─────────────────────────────────────────────────
+    drag(pos) {
+      th('drag', 100, () => {
+        withSpatial(pos, () => {
+          noiseS({ gainPeak: 0.06, attack: 0.01, decay: 0.05, sustain: 0.3, release: 0.1, duration: 0.12,
+                  filterType: 'bandpass', filterFreq: 600, filterFreq2: 1200, filterQ: 3, pink: true });
+        });
+      });
+    },
+
+    // ── RELEASE ──────────────────────────────────────────────
+    release(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 220, freq2: 880, freqExp: true, gainPeak: 0.28, attack: 0.004, decay: 0.06, sustain: 0.1, release: 0.18, duration: 0.15, wet: true });
+        noiseS({ gainPeak: 0.1, attack: 0.003, decay: 0.05, sustain: 0.05, release: 0.12, duration: 0.15, filterType: 'bandpass', filterFreq: 800, filterFreq2: 3000, filterQ: 1 });
+      });
+    },
+
+    // ── FIRE ─────────────────────────────────────────────────
+    fire(pos) {
+      th('fire', 80, () => {
+        withSpatial(pos, () => {
+          noiseS({ gainPeak: 0.09, attack: 0.01, decay: 0.06, sustain: 0.4, release: 0.1, duration: 0.18, filterType: 'lowpass', filterFreq: 500, filterQ: 0.5, pink: true });
+          noiseS({ gainPeak: 0.07, attack: 0.002, decay: 0.03, sustain: 0, release: 0.06, duration: 0.04, filterType: 'bandpass', filterFreq: 2500 + Math.random() * 1500, filterQ: 2 });
+          if (Math.random() > 0.55) {
+            noiseS({ gainPeak: 0.05, attack: 0.001, decay: 0.02, sustain: 0, release: 0.04, duration: 0.03, filterType: 'highpass', filterFreq: 5000, delay: Math.random() * 0.06 });
+          }
+        });
+      });
+    },
+
+    // ── IGNITE ───────────────────────────────────────────────
+    ignite(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        noiseS({ gainPeak: 0.4, attack: 0.015, decay: 0.12, sustain: 0.15, release: 0.35, duration: 0.3, filterType: 'bandpass', filterFreq: 600, filterFreq2: 2500, filterQ: 0.7, pink: true });
+        oscS({ type: 'sine', freq: 90, freq2: 35, freqExp: true, gainPeak: 0.25, attack: 0.01, decay: 0.1, sustain: 0, release: 0.25, duration: 0.15 });
+        noiseS({ gainPeak: 0.18, attack: 0.005, decay: 0.08, sustain: 0, release: 0.12, duration: 0.1, filterType: 'highpass', filterFreq: 4000, delay: 0.05, wet: true });
+      });
+    },
+
+    // ── ASH CRUMBLE ──────────────────────────────────────────
+    ashCrumble(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        noiseS({ gainPeak: 0.22, attack: 0.002, decay: 0.08, sustain: 0.05, release: 0.2, duration: 0.12, filterType: 'bandpass', filterFreq: 800, filterFreq2: 300, filterQ: 3, pink: true });
+        oscS({ type: 'sine', freq: 140, freq2: 55, freqExp: true, gainPeak: 0.12, attack: 0.002, decay: 0.06, sustain: 0, release: 0.14, duration: 0.08 });
+        for (let i = 0; i < 3; i++) {
+          noiseS({ gainPeak: 0.06, attack: 0.001, decay: 0.02, sustain: 0, release: 0.05, duration: 0.02, filterType: 'bandpass', filterFreq: 1500 + Math.random() * 1000, filterQ: 4, delay: i * 0.04 + Math.random() * 0.03 });
+        }
+      });
+    },
+
+    // ── EXPLODE ──────────────────────────────────────────────
+    explode(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 65, freq2: 18, freqExp: true, gainPeak: 0.85, attack: 0.001, decay: 0.12, sustain: 0, release: 0.6, duration: 0.12 });
+        oscS({ type: 'triangle', freq: 120, freq2: 45, freqExp: true, gainPeak: 0.45, attack: 0.001, decay: 0.08, sustain: 0, release: 0.45, duration: 0.09 });
+        noiseS({ gainPeak: 0.65, attack: 0.002, decay: 0.15, sustain: 0.08, release: 0.55, duration: 0.25, filterType: 'lowpass', filterFreq: 1800, filterFreq2: 400, filterQ: 0.5, pink: true });
+        noiseS({ gainPeak: 0.5, attack: 0.001, decay: 0.03, sustain: 0, release: 0.08, duration: 0.03, filterType: 'bandpass', filterFreq: 4000, filterQ: 0.8 });
+        oscS({ type: 'triangle', freq: 380, freq2: 195, gainPeak: 0.15, attack: 0.002, decay: 0.12, sustain: 0.04, release: 0.9, duration: 0.14, wet: true, lfoFreq: 3.5, lfoDepth: 8 });
+        noiseS({ gainPeak: 0.18, attack: 0.05, decay: 0.2, sustain: 0.1, release: 0.5, duration: 0.4, filterType: 'highpass', filterFreq: 2500, wet: true, delay: 0.08 });
+      });
+    },
+
+    // ── FUSE ─────────────────────────────────────────────────
+    fuseLight(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        noiseS({ gainPeak: 0.28, attack: 0.02, decay: 0.1, sustain: 0.5, release: 0.3, duration: 0.6, filterType: 'bandpass', filterFreq: 3500, filterFreq2: 4500, filterQ: 1.8 });
+        oscS({ type: 'sawtooth', freq: 180, freq2: 200, gainPeak: 0.08, attack: 0.03, decay: 0.05, sustain: 0.6, release: 0.3, duration: 0.6, filterType: 'lowpass', filterFreq: 500 });
+        for (let i = 0; i < 4; i++) {
+          noiseS({ gainPeak: 0.1, attack: 0.001, decay: 0.015, sustain: 0, release: 0.04, duration: 0.015, filterType: 'bandpass', filterFreq: 5000 + Math.random() * 3000, filterQ: 2, delay: i * 0.12 + Math.random() * 0.06 });
+        }
+      });
+    },
+
+    // ── PORTAL ───────────────────────────────────────────────
+    portal(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 180, freq2: 1200, freqExp: true, gainPeak: 0.3, attack: 0.01, decay: 0.1, sustain: 0.25, release: 0.3, duration: 0.35, wet: true, lfoFreq: 6, lfoDepth: 15 });
+        oscS({ type: 'sine', freq: 185, freq2: 1250, freqExp: true, gainPeak: 0.2, attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.3, duration: 0.35, detune: -25, wet: true });
+        oscS({ type: 'triangle', freq: 1400, freq2: 2800, freqExp: true, gainPeak: 0.12, attack: 0.005, decay: 0.06, sustain: 0.1, release: 0.25, duration: 0.25, wet: true });
+        noiseS({ gainPeak: 0.18, attack: 0.01, decay: 0.1, sustain: 0.05, release: 0.2, duration: 0.25, filterType: 'bandpass', filterFreq: 2000, filterFreq2: 6000, filterQ: 0.8, wet: true });
+      });
+    },
+
+    // ── CANNON LOAD ──────────────────────────────────────────
+    cannonLoad(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sawtooth', freq: 80, freq2: 600, freqExp: true, gainPeak: 0.25, attack: 0.06, decay: 0.1, sustain: 0.85, release: 0.2, duration: 1.7, filterType: 'lowpass', filterFreq: 400, filterFreq2: 1200, filterQ: 2 });
+        oscS({ type: 'sine', freq: 400, freq2: 2200, freqExp: true, gainPeak: 0.1, attack: 0.1, decay: 0.1, sustain: 0.7, release: 0.2, duration: 1.7, lfoFreq: 8, lfoDepth: 20, wet: true });
+        noiseS({ gainPeak: 0.08, attack: 0.05, decay: 0.1, sustain: 0.6, release: 0.2, duration: 1.7, filterType: 'bandpass', filterFreq: 3000, filterQ: 3 });
+      });
+    },
+
+    // ── CANNON SHOOT ─────────────────────────────────────────
+    cannonShoot(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 180, freq2: 50, freqExp: true, gainPeak: 0.55, attack: 0.001, decay: 0.07, sustain: 0, release: 0.18, duration: 0.07 });
+        noiseS({ gainPeak: 0.5, attack: 0.001, decay: 0.04, sustain: 0, release: 0.12, duration: 0.04, filterType: 'bandpass', filterFreq: 2200, filterQ: 0.9 });
+        noiseS({ gainPeak: 0.2, attack: 0.01, decay: 0.08, sustain: 0, release: 0.2, duration: 0.1, filterType: 'lowpass', filterFreq: 600, pink: true, delay: 0.04 });
+      });
+    },
+
+    // ── DELETE ───────────────────────────────────────────────
+    deleteBody(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 440, freq2: 160, freqExp: true, gainPeak: 0.28, attack: 0.002, decay: 0.05, sustain: 0, release: 0.12, duration: 0.07 });
+        noiseS({ gainPeak: 0.08, attack: 0.001, decay: 0.02, sustain: 0, release: 0.05, duration: 0.02, filterType: 'highpass', filterFreq: 3000 });
+      });
+    },
+
+    // ── ROPE TIE ─────────────────────────────────────────────
+    rope(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'triangle', freq: 320, freq2: 160, freqExp: true, gainPeak: 0.28, attack: 0.001, decay: 0.07, sustain: 0.02, release: 0.22, duration: 0.09, wet: true, lfoFreq: 18, lfoDepth: 12 });
+        noiseS({ gainPeak: 0.14, attack: 0.001, decay: 0.03, sustain: 0, release: 0.08, duration: 0.03, filterType: 'bandpass', filterFreq: 2000, filterQ: 3 });
+      });
+    },
+
+    // ── ROPE REMOVE ──────────────────────────────────────────
+    ropeRemove(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 280, freq2: 100, freqExp: true, gainPeak: 0.22, attack: 0.001, decay: 0.04, sustain: 0, release: 0.15, duration: 0.05 });
+        noiseS({ gainPeak: 0.12, attack: 0.001, decay: 0.04, sustain: 0, release: 0.08, duration: 0.04, filterType: 'highpass', filterFreq: 1500 });
+      });
+    },
+
+    // ── GRAVITY WELL ─────────────────────────────────────────
+    gravityWell(pos) {
+      th('well', 280, () => {
+        getCtx();
+        withSpatial(pos, () => {
+          oscS({ type: 'sine', freq: 42, gainPeak: 0.22, attack: 0.12, decay: 0.1, sustain: 0.6, release: 0.25, duration: 0.55, lfoFreq: 2.5, lfoDepth: 4 });
+          oscS({ type: 'triangle', freq: 84, gainPeak: 0.08, attack: 0.1, decay: 0.1, sustain: 0.5, release: 0.25, duration: 0.55 });
+          noiseS({ gainPeak: 0.05, attack: 0.1, decay: 0.1, sustain: 0.4, release: 0.2, duration: 0.5, filterType: 'lowpass', filterFreq: 200, pink: true });
+        });
+      });
+    },
+
+    // ── ENCODER BEAM ─────────────────────────────────────────
+    encoderBeam(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sawtooth', freq: 1800, freq2: 200, freqExp: true, gainPeak: 0.35, attack: 0.002, decay: 0.08, sustain: 0.05, release: 0.25, duration: 0.1, filterType: 'lowpass', filterFreq: 2500, filterFreq2: 800, filterQ: 1.5 });
+        oscS({ type: 'square', freq: 900, freq2: 100, freqExp: true, gainPeak: 0.15, attack: 0.002, decay: 0.06, sustain: 0, release: 0.18, duration: 0.08, filterType: 'lowpass', filterFreq: 1200 });
+        noiseS({ gainPeak: 0.22, attack: 0.001, decay: 0.04, sustain: 0, release: 0.12, duration: 0.04, filterType: 'highpass', filterFreq: 4000, wet: true });
+      });
+    },
+
+    // ── SUMMON ───────────────────────────────────────────────
+    summon(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        const notes = [261, 329, 392, 494, 659, 784];
+        notes.forEach((f, i) => {
+          oscS({ type: 'sine', freq: f, gainPeak: 0.18, attack: 0.01, decay: 0.08, sustain: 0.35, release: 0.4, duration: 0.5 - i * 0.03, wet: true, delay: i * 0.07 });
+          oscS({ type: 'triangle', freq: f * 2, gainPeak: 0.06, attack: 0.01, decay: 0.06, sustain: 0.1, release: 0.3, duration: 0.35, wet: true, delay: i * 0.07 + 0.02 });
+        });
+        noiseS({ gainPeak: 0.15, attack: 0.02, decay: 0.12, sustain: 0.05, release: 0.4, duration: 0.35, filterType: 'highpass', filterFreq: 5000, wet: true });
+      });
+    },
+
+    // ── MODEL MOVE ───────────────────────────────────────────
+    modelMove(pos) {
+      th('modelMove', 450, () => {
+        withSpatial(pos, () => {
+          oscS({ type: 'sine', freq: 380, freq2: 420, gainPeak: 0.07, attack: 0.01, decay: 0.04, sustain: 0, release: 0.08, duration: 0.1 });
+        });
+      });
+    },
+
+    // ── MODEL DANCE ──────────────────────────────────────────
+    modelDance(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        const melody = [392, 523, 659, 523, 784, 659];
+        melody.forEach((f, i) => {
+          oscS({ type: 'triangle', freq: f, gainPeak: 0.18, attack: 0.005, decay: 0.05, sustain: 0.15, release: 0.15, duration: 0.18, wet: true, delay: i * 0.1 });
+          noiseS({ gainPeak: 0.06, attack: 0.001, decay: 0.02, sustain: 0, release: 0.04, duration: 0.02, filterType: 'bandpass', filterFreq: 3000, filterQ: 2, delay: i * 0.1 });
+        });
+      });
+    },
+
+    // ── MODEL DROP ───────────────────────────────────────────
+    modelDrop(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 700, freq2: 260, freqExp: true, gainPeak: 0.22, attack: 0.002, decay: 0.06, sustain: 0, release: 0.14, duration: 0.08, wet: true });
+        noiseS({ gainPeak: 0.14, attack: 0.001, decay: 0.04, sustain: 0, release: 0.08, duration: 0.04, filterType: 'lowpass', filterFreq: 1200, pink: true });
+      });
+    },
+
+    // ── MODEL WAVE ───────────────────────────────────────────
+    modelWave(pos) {
+      getCtx();
+      withSpatial(pos, () => {
+        oscS({ type: 'sine', freq: 523, gainPeak: 0.18, attack: 0.01, decay: 0.05, sustain: 0.2, release: 0.15, duration: 0.2, wet: true });
+        oscS({ type: 'sine', freq: 784, gainPeak: 0.18, attack: 0.01, decay: 0.05, sustain: 0.2, release: 0.15, duration: 0.2, wet: true, delay: 0.18 });
+      });
+    },
+
+    // ── ROPE MODE TOGGLE (UI — no position) ─────────────────
+    ropeMode(on) {
+      getCtx();
+      oscS({ type: 'triangle', freq: on ? 520 : 360, freq2: on ? 780 : 240, gainPeak: 0.22, attack: 0.005, decay: 0.05, sustain: 0.1, release: 0.15, duration: 0.18, wet: true });
+    },
+
+    // ── DELETE MODE TOGGLE (UI — no position) ───────────────
+    deleteMode(on) {
+      getCtx();
+      oscS({ type: 'square', freq: on ? 160 : 480, freq2: on ? 120 : 560, gainPeak: 0.2, attack: 0.004, decay: 0.05, sustain: 0.05, release: 0.12, duration: 0.15, filterType: 'lowpass', filterFreq: 900 });
+    },
+  };
+})();
+// ============================================================
+// END SOUND SYSTEM v3 — Proximity Spatial Audio
+// ============================================================
+
 const { Engine, Render, Runner, Bodies, World, Mouse, MouseConstraint, Events, Body, Vector } = Matter;
 // --- Setup ---
 const engine = Engine.create();
@@ -37,6 +548,7 @@ function spawnBall(x, y) {
   const ball = Bodies.circle(x, y, 30, { restitution: 0.9, friction: 0.01, render: { fillStyle: "#00ccff" }, label: "Ball" });
   World.add(world, ball);
   spawnedBodies.push(ball);
+  SFX.spawn();
 }
 function spawnBox(x, y) {
   const box = Bodies.rectangle(x, y, 60, 60, {
@@ -53,36 +565,43 @@ function spawnBox(x, y) {
   });
   World.add(world, box);
   spawnedBodies.push(box);
+  SFX.spawn();
 }
 function spawnTriangle(x, y) {
   const tri = Bodies.polygon(x, y, 3, 50, { restitution: 0.9, render: { fillStyle: "#ff6699" }, label: "Triangle" });
   World.add(world, tri);
   spawnedBodies.push(tri);
+  SFX.spawn();
 }
 function spawnRod(x, y) {
   const rod = Bodies.rectangle(x, y, 300, 35, { restitution: 0.9, friction: 0.02, density: 0.004, render: { fillStyle: "#88ff88" }, label: "Rod" });
   World.add(world, rod);
   spawnedBodies.push(rod);
+  SFX.spawn();
 }
 function spawnStar(x, y) {
   const star = Bodies.polygon(x, y, 5, 40, { restitution: 0.8, render: { fillStyle: "#ff33cc" }, label: "Star" });
   World.add(world, star);
   spawnedBodies.push(star);
+  SFX.spawn();
 }
 function spawnHex(x, y) {
   const hex = Bodies.polygon(x, y, 6, 50, { restitution: 0.8, render: { fillStyle: "#33ffcc" }, label: "Hex" });
   World.add(world, hex);
   spawnedBodies.push(hex);
+  SFX.spawn();
 }
 function spawnPlank(x, y) {
   const plank = Bodies.rectangle(x, y, 400, 20, { restitution: 0.6, render: { fillStyle: "#ffaa33" }, label: "Plank" });
   World.add(world, plank);
   spawnedBodies.push(plank);
+  SFX.spawn();
 }
 function spawnMiniBall(x, y) {
   const small = Bodies.circle(x, y, 15, { restitution: 1.0, friction: 0, render: { fillStyle: "#ffffff" }, label: "MiniBall" });
   World.add(world, small);
   spawnedBodies.push(small);
+  SFX.spawn();
 }
 
 // --- 💎 Quartz ---
@@ -102,6 +621,7 @@ function spawnQuartz(x, y) {
   });
   World.add(world, quartz);
   spawnedBodies.push(quartz);
+  SFX.spawn();
 }
 
 // --- 💡 Lamp ---
@@ -121,6 +641,7 @@ function spawnLamp(x, y) {
   });
   World.add(world, lamp);
   spawnedBodies.push(lamp);
+  SFX.spawn();
 
   setInterval(() => {
     if (!spawnedBodies.includes(lamp)) return;
@@ -177,6 +698,7 @@ function spawnPortalPair(x, y) {
   World.add(world, [bluePortal, orangePortal]);
   spawnedBodies.push(bluePortal, orangePortal);
   portals.push(bluePortal, orangePortal);
+  SFX.portal();
 }
 
 function spawnCannon(x, y) {
@@ -201,6 +723,7 @@ function spawnCannon(x, y) {
   World.add(world, cannon);
   spawnedBodies.push(cannon);
   cannons.push(cannon);
+  SFX.spawn();
 }
 
 function createBodyOfType(type, x, y) {
@@ -315,6 +838,7 @@ function spawnEncoder(x, y) {
   encoder.code = "";
   World.add(world, encoder);
   spawnedBodies.push(encoder);
+  SFX.spawn();
 }
 
 function spawnGravityWell(x, y) {
@@ -326,6 +850,7 @@ function spawnGravityWell(x, y) {
   World.add(world, gravityWell);
   spawnedBodies.push(gravityWell);
   gravityWells.push(gravityWell);
+  SFX.spawn();
 }
 
 function teleportBody(body, fromPortal) {
@@ -344,6 +869,7 @@ function teleportBody(body, fromPortal) {
   Body.setPosition(body, destination);
   Body.setVelocity(body, body.velocity);
   body._lastTeleportedPortal = fromPortal.pairId;
+  SFX.portal();
   setTimeout(() => {
     if (body) body._lastTeleportedPortal = null;
   }, 120);
@@ -354,6 +880,7 @@ function startCannonLoad(cannon, target) {
 
   cannon.isLoading = true;
   cannon.loadingTarget = target;
+  SFX.cannonLoad();
 
   cannon.loadTimer = setTimeout(() => {
     if (!spawnedBodies.includes(cannon) || !spawnedBodies.includes(target)) {
@@ -383,6 +910,7 @@ function shootCannon(cannon, target) {
   Body.applyForce(target, target.position, force);
   cannon.isLoading = false;
   cannon.loadingTarget = null;
+  SFX.cannonShoot();
 }
 
 // --- Mouse Control ---
@@ -399,7 +927,7 @@ const isTypingMode = () => {
 
 let dragStart = null;
 let dragBody = null;
-Events.on(mouseConstraint, "startdrag", e => { dragBody = e.body; dragStart = { ...mouse.position }; });
+Events.on(mouseConstraint, "startdrag", e => { dragBody = e.body; dragStart = { ...mouse.position }; SFX.drag(); });
 Events.on(mouseConstraint, "enddrag", e => {
   if (dragBody) {
     const dragEnd = { ...mouse.position };
@@ -410,6 +938,7 @@ Events.on(mouseConstraint, "enddrag", e => {
       const power = Math.min(distance * 0.0004, 0.02);
       const force = Vector.mult(normalized, power);
       Body.applyForce(dragBody, dragBody.position, force);
+      SFX.release();
     }
   }
   dragBody = null;
@@ -435,13 +964,14 @@ const delLastBtn = document.getElementById("delLast");
 const delAllBtn = document.getElementById("delAll");
 const delModeBtn = document.getElementById("delMode");
 let deleteMode = false;
-delLastBtn.onclick = () => { const last = spawnedBodies.pop(); if (last) World.remove(world, last); };
+delLastBtn.onclick = () => { const last = spawnedBodies.pop(); if (last) { World.remove(world, last); SFX.deleteBody(); } };
 delAllBtn.onclick = () => window.location.reload();
-delModeBtn.onclick = () => { deleteMode = !deleteMode; delModeBtn.textContent = `Delete Mode: ${deleteMode ? "ON" : "OFF"}`; };
+delModeBtn.onclick = () => { deleteMode = !deleteMode; delModeBtn.textContent = `Delete Mode: ${deleteMode ? "ON" : "OFF"}`; SFX.deleteMode(deleteMode); };
 Events.on(mouseConstraint, "mousedown", e => {
   if (deleteMode && e.body && !e.body.isStatic) {
     World.remove(world, e.body);
     spawnedBodies = spawnedBodies.filter(b => b !== e.body);
+    SFX.deleteBody();
   }
 });
 
@@ -450,6 +980,7 @@ const fires = [];
 const burningBodies = new Set();
 
 function createFireCluster(x, y, sizeFactor = 1) {
+  SFX.fire();
   for (let i = 0; i < 8; i++) {
     fires.push({
       x: x + (Math.random() - 0.5) * 40,
@@ -553,6 +1084,7 @@ document.getElementById("apply-props").addEventListener("click", () => {
 function igniteBody(body) {
   if (burningBodies.has(body)) return;
   burningBodies.add(body);
+  SFX.ignite();
 
   const burnInterval = setInterval(() => {
     if (!spawnedBodies.includes(body)) {
@@ -606,6 +1138,14 @@ Events.on(engine, "collisionStart", e => {
   for (const pair of e.pairs) {
     const { bodyA, bodyB, collision } = pair;
 
+    // Bounce sound based on impact speed
+    if (collision && collision.depth > 0.5) {
+      const relVel = bodyA.speed + bodyB.speed;
+      if (!bodyA.isStatic || !bodyB.isStatic) {
+        SFX.bounce(relVel);
+      }
+    }
+
     const checkPortal = (portalBody, otherBody) => {
       if (portalBody.label !== "PortalBlue" && portalBody.label !== "PortalOrange") return;
       if (otherBody.isStatic) return;
@@ -635,6 +1175,7 @@ Events.on(engine, "afterUpdate", () => {
   for (const well of gravityWells) {
     if (!spawnedBodies.includes(well)) continue;
     const radius = well.gravityRadius || 200;
+    let pulling = false;
     for (const body of spawnedBodies) {
       if (body === well || body.isStatic || body.isGravityWell || body.isEncoder) continue;
       if (!body.position) continue;
@@ -644,13 +1185,16 @@ Events.on(engine, "afterUpdate", () => {
       if (dist < radius && dist > 10) {
         const strength = well.pullStrength * (1 - dist / radius);
         Body.applyForce(body, body.position, { x: dx / dist * strength, y: dy / dist * strength });
+        pulling = true;
       }
     }
+    if (pulling) SFX.gravityWell();
   }
 });
 
 function crumbleAsh(ash) {
   if (!spawnedBodies.includes(ash)) return;
+  SFX.ashCrumble();
   const x = ash.position.x, y = ash.position.y;
   World.remove(world, ash);
   spawnedBodies = spawnedBodies.filter(b => b !== ash);
@@ -721,6 +1265,7 @@ function spawnTorch(x, y) {
   World.add(world, torch);
   spawnedBodies.push(torch);
   torches.push(torch);
+  SFX.spawn();
 
   const fireInterval = setInterval(() => {
     if (!spawnedBodies.includes(torch)) {
@@ -795,6 +1340,7 @@ function spawnTNT(x, y) {
     World.add(world, tnt);
     spawnedBodies.push(tnt);
     spawnedTNTs.push(tnt);
+    SFX.spawn();
   } catch(err) {
     console.warn("TNT spawn error:", err);
   }
@@ -814,6 +1360,7 @@ document.addEventListener("keydown", e => {
     const nearestTNT = spawnedTNTs[spawnedTNTs.length - 1];
 
     createFireCluster(nearestTNT.position.x, nearestTNT.position.y, 1.4);
+    SFX.fuseLight();
 
     const ctx = render.context;
     ctx.font = "bold 18px 'Space Grotesk', sans-serif";
@@ -834,6 +1381,7 @@ function explodeTNT(tnt) {
   spawnedTNTs   = spawnedTNTs.filter(b => b !== tnt);
 
   for (let i = 0; i < 40; i++) createFireCluster(x, y, 2.2);
+  SFX.explode();
 
   let shakeFrames = 18, shakeMag = 10;
   const origTransform = render.canvas.style.transform;
@@ -953,6 +1501,7 @@ document.addEventListener("keydown", e => {
     ropeMode = !ropeMode;
     ropeStart = null;
     highlightBody = null;
+    SFX.ropeMode(ropeMode);
   }
 
   if (key === "r") {
@@ -983,6 +1532,7 @@ function removeRope(rope) {
   for (const seg of rope.segments) World.remove(world, seg);
   for (const c of rope.constraints) World.remove(world, c);
   ropes = ropes.filter(r => r !== rope);
+  SFX.ropeRemove();
 }
 
 Events.on(mouseConstraint, "mousedown", () => {
@@ -996,6 +1546,7 @@ Events.on(mouseConstraint, "mousedown", () => {
     } else if (body !== ropeStart) {
       createRealRope(ropeStart, body);
       ropeStart = null;
+      SFX.rope();
     }
   }
 });
@@ -1896,6 +2447,7 @@ function fireEncoderBeam(encoder) {
     document.getElementById('console-feedback').textContent = 'Instruction matrix blank. Write a command buffer.';
     return;
   }
+  SFX.encoderBeam();
 
   const start = { x: encoder.position.x, y: encoder.position.y };
   const direction = Vector.sub(mouse.position, start);
@@ -2632,10 +3184,22 @@ document.querySelectorAll('.object-item').forEach(it=>{
 });
 
 /* =====================================================
-   🤖 MODEL SYSTEM — SummonAI
+   🤖 MODEL SYSTEM v2 — SummonAI Enhanced
    Spawned via Encoder command: .summonai(){ m.commands }
    Press M while Encoder is selected → Model spawns at mouse
-   with animation. Supports: m.move(), m.goto(), m.pickup(), m.bring()
+   with animation.
+
+   COMMANDS:
+     m.move(px)         — move horizontally ± pixels
+     m.goto(label)      — walk to named object
+     m.pickup(label)    — walk to & lift object (raises arm)
+     m.bring()          — carry item back to encoder (drops on arrival)
+     m.drop()           — drop held item immediately
+     m.wait(ms)         — pause for given milliseconds
+     m.dance()          — perform a dance routine
+     m.patrol(px)       — pace back and forth over distance
+     m.follow(label)    — continuously follow a named object
+     m.wave()           — raise arm and wave (greeting animation)
 ===================================================== */
 
 const models = []; // all active model instances
@@ -2651,7 +3215,6 @@ function parseSummonAIBlock(code) {
 // ---------- Parse model commands from inside {} ----------
 function parseModelCommands(block) {
   const cmds = [];
-  // Split by semicolons or newlines, trim whitespace
   const lines = block.split(/[\n;]+/).map(l => l.trim()).filter(Boolean);
   for (const line of lines) {
     // m.move(value)
@@ -2666,6 +3229,42 @@ function parseModelCommands(block) {
     // m.bring()
     m = line.match(/^m\.bring\(\s*\)$/i);
     if (m) { cmds.push({ type: 'bring' }); continue; }
+    // m.drop()
+    m = line.match(/^m\.drop\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'drop' }); continue; }
+    // m.wait(ms)
+    m = line.match(/^m\.wait\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'wait', ms: parseFloat(m[1]) || 1000 }); continue; }
+    // m.dance()
+    m = line.match(/^m\.dance\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'dance' }); continue; }
+    // m.patrol(px)
+    m = line.match(/^m\.patrol\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'patrol', dist: parseFloat(m[1]) || 150 }); continue; }
+    // m.follow(label)
+    m = line.match(/^m\.follow\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'follow', label: m[1].replace(/['"]/g, '').trim() }); continue; }
+    // m.wave()
+    m = line.match(/^m\.wave\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'wave' }); continue; }
+    // m.jump()
+    m = line.match(/^m\.jump\(\s*([^)]*)\s*\)$/i);
+    if (m) { cmds.push({ type: 'jump', power: parseFloat(m[1]) || 1.0 }); continue; }
+    // m.run(px)
+    m = line.match(/^m\.run\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'run', value: parseFloat(m[1]) || 200 }); continue; }
+    // m.spin()
+    m = line.match(/^m\.spin\(\s*([^)]*)\s*\)$/i);
+    if (m) { cmds.push({ type: 'spin', turns: parseFloat(m[1]) || 2 }); continue; }
+    // m.crouch()
+    m = line.match(/^m\.crouch\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'crouch' }); continue; }
+    // m.taunt()
+    m = line.match(/^m\.taunt\(\s*\)$/i);
+    if (m) { cmds.push({ type: 'taunt' }); continue; }
+    // m.jumpto(label)
+    m = line.match(/^m\.jumpto\(\s*([^)]+)\s*\)$/i);
+    if (m) { cmds.push({ type: 'jumpto', label: m[1].replace(/['"]/g, '').trim() }); continue; }
   }
   return cmds;
 }
@@ -2675,8 +3274,37 @@ function findBodyByLabel(label) {
   return spawnedBodies.find(b => b.label && b.label.toLowerCase() === label.toLowerCase()) || null;
 }
 
+// ---------- Find nearest Encoder ----------
+function findNearestEncoder(pos) {
+  let best = null, bestDist = Infinity;
+  for (const b of spawnedBodies) {
+    if (!b.isEncoder) continue;
+    const dx = b.position.x - pos.x, dy = b.position.y - pos.y;
+    const d = Math.sqrt(dx*dx+dy*dy);
+    if (d < bestDist) { bestDist = d; best = b; }
+  }
+  return best;
+}
+
+// ---------- Drop held item ----------
+function dropItem(model) {
+  if (model.pickedUpBody && spawnedBodies.includes(model.pickedUpBody)) {
+    Body.setStatic(model.pickedUpBody, false);
+    Body.setPosition(model.pickedUpBody, {
+      x: model.position.x + model.moveDir * 20,
+      y: model.position.y - 45
+    });
+    Body.setVelocity(model.pickedUpBody, { x: model.moveDir * 1.5, y: -2 });
+    // Spawn a small drop glow effect
+    model._dropEffect = { x: model.position.x, y: model.position.y - 50, age: 0, maxAge: 25 };
+  }
+  model.pickedUpBody = null;
+  model._armRaise = 0;
+}
+
 // ---------- Summon Particle Animation ----------
 function createSummonAnimation(x, y, onComplete) {
+  SFX.summon();
   const anim = {
     x, y,
     age: 0,
@@ -2788,22 +3416,48 @@ function spawnModel(x, y, commands, encoderRef) {
   model.isModel = true;
   model.modelCommands = commands;
   model.modelCmdIndex = 0;
-  model.modelState = 'idle'; // idle | moving | goto | pickup | bring
+  model.modelState = 'idle'; // idle | moving | goto | pickup | bring | drop | wait | dance | patrol | follow | wave | jumping | running | spinning | crouching | taunting | ragdoll
   model.pickedUpBody = null;
   model.targetPos = null;
-  model.moveDir = 1; // 1 = right, -1 = left
+  model.moveDir = 1;
   model.encoder = encoderRef;
   model._phase = Math.random() * Math.PI * 2;
   model._spawnTime = performance.now();
   model._isExecuting = false;
 
+  // v2 state fields
+  model._armRaise = 0;          // 0..1 smooth arm raise animation
+  model._waveAngle = 0;         // wave animation accumulator
+  model._waveActive = false;    // is waving
+  model._dancePhase = 0;        // dance timer
+  model._patrolStart = null;    // patrol start X
+  model._patrolDist = 0;        // patrol half-width
+  model._patrolDir = 1;         // patrol direction
+  model._followTarget = null;   // body to follow
+  model._dropEffect = null;     // sparkle on drop
+  model._encoderProximityDrop = false; // auto-drop flag
+
+  // v3 enhanced fields
+  model._isGrounded = false;    // is on ground/surface
+  model._jumpCooldown = 0;      // frames until can jump again
+  model._spinAngle = 0;         // spin accumulator
+  model._spinSpeed = 0;         // current spin speed
+  model._crouchFactor = 0;      // 0..1 crouch squish
+  model._tauntPhase = 0;        // taunt animation phase
+  model._ragdollTime = 0;       // frames remaining in ragdoll
+  model._ragdollAngle = 0;      // ragdoll tilt
+  model._squash = 1;            // squash/stretch Y scale
+  model._stretch = 1;           // squash/stretch X scale
+  model._landImpact = 0;        // landing squash trigger (0..1)
+  model._prevY = y;             // previous Y for landing detection
+  model._trailPoints = [];      // motion trail when running/jumping
+  model._runPhase = 0;          // run animation phase
+
   World.add(world, model);
   spawnedBodies.push(model);
   models.push(model);
 
-  // Start executing commands after spawn animation settles
   setTimeout(() => executeNextModelCommand(model), 600);
-
   return model;
 }
 
@@ -2820,22 +3474,14 @@ function executeNextModelCommand(model) {
 
   switch (cmd.type) {
     case 'move': {
-      // Move horizontally by `value` pixels (positive=right, negative=left)
-      const dist = cmd.value;
       model.modelState = 'moving';
-      const targetX = model.position.x + dist;
-      model._moveTarget = targetX;
-      model.moveDir = dist > 0 ? 1 : -1;
-      // We'll track via afterUpdate
+      model._moveTarget = model.position.x + (cmd.value || 50);
+      model.moveDir = cmd.value > 0 ? 1 : -1;
       break;
     }
     case 'goto': {
       const target = findBodyByLabel(cmd.label);
-      if (!target) {
-        // skip to next
-        executeNextModelCommand(model);
-        return;
-      }
+      if (!target) { executeNextModelCommand(model); return; }
       model.modelState = 'goto';
       model._gotoTarget = target;
       model.moveDir = target.position.x > model.position.x ? 1 : -1;
@@ -2843,29 +3489,159 @@ function executeNextModelCommand(model) {
     }
     case 'pickup': {
       const target = findBodyByLabel(cmd.label);
-      if (!target || target.isStatic) {
-        executeNextModelCommand(model);
-        return;
-      }
+      if (!target || target.isStatic) { executeNextModelCommand(model); return; }
       model.modelState = 'pickup';
       model._pickupTarget = target;
       model.moveDir = target.position.x > model.position.x ? 1 : -1;
       break;
     }
     case 'bring': {
-      if (!model.pickedUpBody) {
-        executeNextModelCommand(model);
-        return;
-      }
-      // Bring = move back to encoder position
-      const enc = model.encoder;
+      if (!model.pickedUpBody) { executeNextModelCommand(model); return; }
+      const enc = model.encoder || findNearestEncoder(model.position);
       if (enc) {
         model.modelState = 'bring';
-        model._bringTarget = enc.position;
+        model._bringTarget = enc;
         model.moveDir = enc.position.x > model.position.x ? 1 : -1;
       } else {
         executeNextModelCommand(model);
       }
+      break;
+    }
+    case 'drop': {
+      dropItem(model);
+      model.modelState = 'idle';
+      SFX.modelDrop();
+      setTimeout(() => executeNextModelCommand(model), 300);
+      break;
+    }
+    case 'wait': {
+      model.modelState = 'waiting';
+      setTimeout(() => {
+        if (!spawnedBodies.includes(model)) return;
+        model.modelState = 'idle';
+        executeNextModelCommand(model);
+      }, cmd.ms || 1000);
+      break;
+    }
+    case 'dance': {
+      model.modelState = 'dancing';
+      model._dancePhase = 0;
+      SFX.modelDance();
+      setTimeout(() => {
+        if (!spawnedBodies.includes(model)) return;
+        model.modelState = 'idle';
+        executeNextModelCommand(model);
+      }, 3000);
+      break;
+    }
+    case 'patrol': {
+      model.modelState = 'patrolling';
+      model._patrolStart = model.position.x;
+      model._patrolDist = Math.abs(cmd.dist || 150);
+      model._patrolDir = 1;
+      model.moveDir = 1;
+      // patrol runs until end of command list (it's a looping command — we don't auto-advance)
+      break;
+    }
+    case 'follow': {
+      const target = findBodyByLabel(cmd.label);
+      if (!target) { executeNextModelCommand(model); return; }
+      model.modelState = 'following';
+      model._followTarget = target;
+      // follow is also persistent — doesn't auto-advance
+      break;
+    }
+    case 'wave': {
+      model.modelState = 'waving';
+      model._waveActive = true;
+      model._waveAngle = 0;
+      SFX.modelWave();
+      setTimeout(() => {
+        if (!spawnedBodies.includes(model)) return;
+        model._waveActive = false;
+        model.modelState = 'idle';
+        executeNextModelCommand(model);
+      }, 1800);
+      break;
+    }
+    case 'jump': {
+      const jumpPower = Math.min(cmd.power || 1.0, 3.0);
+      const jumpFn = () => {
+        if (!spawnedBodies.includes(model)) return;
+        model.modelState = 'jumping';
+        model._jumpCooldown = 30;
+        model._landImpact = 0;
+        const jvx = model.velocity ? model.velocity.x : 0;
+        Body.setVelocity(model, { x: jvx, y: -12 * jumpPower });
+        // Stretch upward on jump
+        model._squash = 0.7;
+        model._stretch = 1.3;
+        // Trail burst
+        model._trailPoints = [];
+        setTimeout(() => {
+          if (!spawnedBodies.includes(model)) return;
+          if (model.modelState === 'jumping') model.modelState = 'idle';
+          executeNextModelCommand(model);
+        }, 800 + jumpPower * 200);
+      };
+      jumpFn();
+      break;
+    }
+    case 'run': {
+      model.modelState = 'running';
+      model._moveTarget = model.position.x + (cmd.value || 200);
+      model.moveDir = cmd.value > 0 ? 1 : -1;
+      model._runPhase = 0;
+      break;
+    }
+    case 'spin': {
+      model.modelState = 'spinning';
+      model._spinAngle = 0;
+      model._spinSpeed = 0.22;
+      const totalSpin = (cmd.turns || 2) * Math.PI * 2;
+      const spinInterval = setInterval(() => {
+        if (!spawnedBodies.includes(model)) { clearInterval(spinInterval); return; }
+        model._spinAngle += model._spinSpeed;
+        model._spinSpeed = Math.min(model._spinSpeed + 0.04, 0.45);
+        if (model._spinAngle >= totalSpin) {
+          clearInterval(spinInterval);
+          model._spinSpeed = 0;
+          model._spinAngle = 0;
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+        }
+      }, 16);
+      break;
+    }
+    case 'crouch': {
+      model.modelState = 'crouching';
+      model._crouchFactor = 0;
+      setTimeout(() => {
+        if (!spawnedBodies.includes(model)) return;
+        model.modelState = 'idle';
+        model._crouchFactor = 0;
+        executeNextModelCommand(model);
+      }, 1200);
+      break;
+    }
+    case 'taunt': {
+      model.modelState = 'taunting';
+      model._tauntPhase = 0;
+      setTimeout(() => {
+        if (!spawnedBodies.includes(model)) return;
+        model.modelState = 'idle';
+        model._tauntPhase = 0;
+        executeNextModelCommand(model);
+      }, 2200);
+      break;
+    }
+    case 'jumpto': {
+      const jTarget = findBodyByLabel(cmd.label);
+      if (!jTarget) { executeNextModelCommand(model); return; }
+      model.modelState = 'jumpto';
+      model._jumpToTarget = jTarget;
+      model.moveDir = jTarget.position.x > model.position.x ? 1 : -1;
+      // Walk toward, then leap
       break;
     }
     default:
@@ -2875,21 +3651,122 @@ function executeNextModelCommand(model) {
 
 // ---------- Model physics update ----------
 Events.on(engine, 'afterUpdate', () => {
-  const MOVE_SPEED = 3;
-  const ARRIVE_DIST = 24;
-  const PICKUP_DIST = 50;
+  const MOVE_SPEED = 3.2;
+  const RUN_SPEED = 6.5;
+  const ARRIVE_DIST = 26;
+  const PICKUP_DIST = 52;
+  const ENCODER_DROP_DIST = 70;
 
   for (const model of models) {
     if (!spawnedBodies.includes(model)) continue;
 
-    // Keep picked-up body glued above model
+    // === Grounded detection (check if velocity.y is near 0 and was previously moving down) ===
+    const velY = model.velocity ? model.velocity.y : 0;
+    const wasAirborne = !model._isGrounded;
+    model._isGrounded = Math.abs(velY) < 0.8 && model.position.y > (model._prevY - 2);
+    // Landing squash: if we just landed hard
+    if (wasAirborne && model._isGrounded && model._prevVelY && model._prevVelY > 3) {
+      model._landImpact = Math.min(model._prevVelY / 15, 1);
+      model._squash = 1 - model._landImpact * 0.45;
+      model._stretch = 1 + model._landImpact * 0.35;
+      // If in jumping state, return to idle
+      if (model.modelState === 'jumping') {
+        model.modelState = 'idle';
+      }
+    }
+    model._prevY = model.position.y;
+    model._prevVelY = velY;
+
+    // === Smooth squash/stretch recovery ===
+    model._squash = model._squash ? model._squash + (1 - model._squash) * 0.18 : 1;
+    model._stretch = model._stretch ? model._stretch + (1 - model._stretch) * 0.18 : 1;
+    model._landImpact = model._landImpact ? Math.max(0, model._landImpact - 0.06) : 0;
+
+    // === Jump cooldown ===
+    if (model._jumpCooldown > 0) model._jumpCooldown--;
+
+    // === Ragdoll countdown ===
+    if (model._ragdollTime > 0) {
+      model._ragdollTime--;
+      if (model._ragdollTime === 0) {
+        model.modelState = 'idle';
+        executeNextModelCommand(model);
+      }
+      continue; // skip normal state machine while ragdolling
+    }
+
+    // === Motion trail for running/jumping ===
+    if (model.modelState === 'running' || model.modelState === 'jumping') {
+      if (!model._trailPoints) model._trailPoints = [];
+      model._trailPoints.unshift({ x: model.position.x, y: model.position.y, age: 0 });
+      if (model._trailPoints.length > 8) model._trailPoints.pop();
+    } else {
+      if (model._trailPoints && model._trailPoints.length > 0) {
+        model._trailPoints.shift();
+      }
+    }
+    if (model._trailPoints) model._trailPoints.forEach(p => p.age++);
+
+    // === Auto-drop when near ANY encoder ===
+    if (model.pickedUpBody) {
+      const nearEnc = findNearestEncoder(model.position);
+      if (nearEnc) {
+        const ex = nearEnc.position.x - model.position.x;
+        const ey = nearEnc.position.y - model.position.y;
+        const encDist = Math.sqrt(ex*ex + ey*ey);
+        if (encDist < ENCODER_DROP_DIST && model.modelState !== 'bring') {
+          if (!model._encoderProximityDrop) {
+            model._encoderProximityDrop = true;
+            dropItem(model);
+            const fb = document.getElementById('console-feedback');
+            if (fb) fb.textContent = '📦 Model dropped item near Encoder (proximity).';
+          }
+        } else if (encDist > ENCODER_DROP_DIST + 20) {
+          model._encoderProximityDrop = false;
+        }
+      }
+    } else {
+      model._encoderProximityDrop = false;
+    }
+
+    // === Keep picked-up body glued above model ===
     if (model.pickedUpBody && spawnedBodies.includes(model.pickedUpBody)) {
+      model._armRaise = Math.min(1, (model._armRaise || 0) + 0.12);
       Body.setPosition(model.pickedUpBody, {
-        x: model.position.x,
-        y: model.position.y - 60
+        x: model.position.x + model.moveDir * 14,
+        y: model.position.y - 58 - model._armRaise * 14
       });
       Body.setVelocity(model.pickedUpBody, { x: 0, y: 0 });
       Body.setStatic(model.pickedUpBody, true);
+    } else {
+      if (!model._waveActive) model._armRaise = Math.max(0, (model._armRaise || 0) - 0.08);
+    }
+
+    // === Wave animation accumulator ===
+    if (model._waveActive) {
+      model._waveAngle = (model._waveAngle || 0) + 0.18;
+    }
+
+    // === Dance accumulator ===
+    if (model.modelState === 'dancing') {
+      model._dancePhase = (model._dancePhase || 0) + 0.15;
+    }
+
+    // === Taunt accumulator ===
+    if (model.modelState === 'taunting') {
+      model._tauntPhase = (model._tauntPhase || 0) + 0.12;
+    }
+
+    // === Crouch lerp ===
+    if (model.modelState === 'crouching') {
+      model._crouchFactor = Math.min(1, (model._crouchFactor || 0) + 0.1);
+    } else {
+      model._crouchFactor = Math.max(0, (model._crouchFactor || 0) - 0.1);
+    }
+
+    // === Run phase ===
+    if (model.modelState === 'running') {
+      model._runPhase = (model._runPhase || 0) + 0.28;
     }
 
     switch (model.modelState) {
@@ -2900,6 +3777,20 @@ Events.on(engine, 'afterUpdate', () => {
           executeNextModelCommand(model);
         } else {
           Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'running': {
+        const dx = model._moveTarget - model.position.x;
+        if (Math.abs(dx) < ARRIVE_DIST) {
+          model.modelState = 'idle';
+          // Landing after run — squash
+          model._squash = 0.75;
+          model._stretch = 1.25;
+          executeNextModelCommand(model);
+        } else {
+          // Running leaves a lean
+          Body.setVelocity(model, { x: model.moveDir * RUN_SPEED, y: model.velocity.y });
         }
         break;
       }
@@ -2920,6 +3811,54 @@ Events.on(engine, 'afterUpdate', () => {
         }
         break;
       }
+      case 'jumpto': {
+        const jt = model._jumpToTarget;
+        if (!jt || !spawnedBodies.includes(jt)) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+          break;
+        }
+        const dx = jt.position.x - model.position.x;
+        const dist = Math.abs(dx);
+        model.moveDir = dx > 0 ? 1 : -1;
+        if (dist < 80 && model._isGrounded && model._jumpCooldown === 0) {
+          // Jump toward target
+          model._jumpCooldown = 45;
+          model._squash = 0.65; model._stretch = 1.4;
+          const jumpVx = model.moveDir * Math.min(dist * 0.06, 5);
+          Body.setVelocity(model, { x: jumpVx, y: -11 });
+          model.modelState = 'jumping';
+          setTimeout(() => {
+            if (!spawnedBodies.includes(model)) return;
+            if (model.modelState === 'jumping') model.modelState = 'idle';
+            executeNextModelCommand(model);
+          }, 900);
+        } else if (dist > 80) {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'jumping': {
+        // Air control — gentle horizontal nudge
+        const jvx = model.velocity ? model.velocity.x : 0;
+        const targetVx = model.moveDir * MOVE_SPEED * 0.5;
+        Body.setVelocity(model, { x: jvx + (targetVx - jvx) * 0.08, y: model.velocity.y });
+        break;
+      }
+      case 'spinning': {
+        // Stay mostly in place while spinning
+        Body.setVelocity(model, { x: 0, y: model.velocity.y });
+        break;
+      }
+      case 'crouching': {
+        Body.setVelocity(model, { x: 0, y: model.velocity.y });
+        break;
+      }
+      case 'taunting': {
+        const sway = Math.sin(model._tauntPhase * 3.5) * 2.2;
+        Body.setVelocity(model, { x: sway, y: model.velocity.y });
+        break;
+      }
       case 'pickup': {
         const pt = model._pickupTarget;
         if (!pt || !spawnedBodies.includes(pt)) {
@@ -2928,11 +3867,10 @@ Events.on(engine, 'afterUpdate', () => {
           break;
         }
         const dx = pt.position.x - model.position.x;
-        const dist = Math.abs(dx);
         model.moveDir = dx > 0 ? 1 : -1;
-        if (dist < PICKUP_DIST) {
-          // Pick it up!
+        if (Math.abs(dx) < PICKUP_DIST) {
           model.pickedUpBody = pt;
+          model._armRaise = 0;
           Body.setStatic(pt, true);
           Body.setPosition(pt, { x: model.position.x, y: model.position.y - 60 });
           model.modelState = 'idle';
@@ -2944,36 +3882,70 @@ Events.on(engine, 'afterUpdate', () => {
         break;
       }
       case 'bring': {
-        const bt = model._bringTarget || (model.encoder && model.encoder.position);
-        if (!bt) {
+        const enc = model._bringTarget || model.encoder;
+        if (!enc) {
           model.modelState = 'idle';
           executeNextModelCommand(model);
           break;
         }
-        const dx = bt.x - model.position.x;
+        const encPos = enc.position || enc;
+        const dx = encPos.x - model.position.x;
         model.moveDir = dx > 0 ? 1 : -1;
         if (Math.abs(dx) < ARRIVE_DIST) {
-          // Drop the item here
-          if (model.pickedUpBody && spawnedBodies.includes(model.pickedUpBody)) {
-            Body.setStatic(model.pickedUpBody, false);
-            Body.setPosition(model.pickedUpBody, {
-              x: model.position.x,
-              y: model.position.y - 50
-            });
-          }
-          model.pickedUpBody = null;
+          dropItem(model);
           model.modelState = 'idle';
           executeNextModelCommand(model);
+          const fb = document.getElementById('console-feedback');
+          if (fb) fb.textContent = '✅ Model delivered item to Encoder!';
         } else {
           Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED, y: model.velocity.y });
         }
+        break;
+      }
+      case 'waiting': {
+        Body.setVelocity(model, { x: 0, y: model.velocity.y });
+        break;
+      }
+      case 'dancing': {
+        const sway = Math.sin(model._dancePhase * 1.8) * 1.8;
+        Body.setVelocity(model, { x: sway, y: model.velocity.y });
+        break;
+      }
+      case 'patrolling': {
+        if (model._patrolStart === null) model._patrolStart = model.position.x;
+        const leftBound = model._patrolStart - model._patrolDist;
+        const rightBound = model._patrolStart + model._patrolDist;
+        if (model.position.x >= rightBound) model._patrolDir = -1;
+        if (model.position.x <= leftBound) model._patrolDir = 1;
+        model.moveDir = model._patrolDir;
+        Body.setVelocity(model, { x: model._patrolDir * MOVE_SPEED * 0.8, y: model.velocity.y });
+        break;
+      }
+      case 'following': {
+        const ft = model._followTarget;
+        if (!ft || !spawnedBodies.includes(ft)) {
+          model.modelState = 'idle';
+          executeNextModelCommand(model);
+          break;
+        }
+        const fdx = ft.position.x - model.position.x;
+        model.moveDir = fdx > 0 ? 1 : -1;
+        if (Math.abs(fdx) > 55) {
+          Body.setVelocity(model, { x: model.moveDir * MOVE_SPEED * 0.9, y: model.velocity.y });
+        } else {
+          Body.setVelocity(model, { x: 0, y: model.velocity.y });
+        }
+        break;
+      }
+      case 'waving': {
+        Body.setVelocity(model, { x: 0, y: model.velocity.y });
         break;
       }
     }
   }
 });
 
-// ---------- Render Model (custom animated draw) ----------
+// ---------- Render Model v2 (custom animated draw) ----------
 Events.on(render, 'afterRender', () => {
   const ctx = render.context;
   const now = performance.now() / 1000;
@@ -2982,25 +3954,34 @@ Events.on(render, 'afterRender', () => {
     if (!spawnedBodies.includes(model)) continue;
 
     const { x, y } = model.position;
-    const isMoving = model.modelState !== 'idle';
-    const walkCycle = isMoving ? Math.sin(now * 10) : 0;
+    const isMoving = (model.modelState === 'moving' || model.modelState === 'goto' ||
+                      model.modelState === 'pickup' || model.modelState === 'bring' ||
+                      model.modelState === 'patrolling' || model.modelState === 'following');
+    const isDancing = model.modelState === 'dancing';
+    const isWaving = model.modelState === 'waving' || model._waveActive;
+    const walkCycle = isMoving ? Math.sin(now * 10) : (isDancing ? Math.sin(now * 14) : 0);
     const dir = model.moveDir;
     const hasItem = !!model.pickedUpBody;
+    const armRaise = model._armRaise || 0;
 
-    // Scale-in animation on spawn
     const spawnAge = (performance.now() - model._spawnTime) / 1000;
     const scale = Math.min(1, spawnAge * 3);
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.scale(scale * dir, scale); // flip based on direction
-    ctx.translate(0, 0);
+    ctx.scale(scale * dir, scale);
 
     // === BODY (torso) ===
     const bodyGrad = ctx.createLinearGradient(-15, -28, 15, 10);
     bodyGrad.addColorStop(0, 'rgba(0,220,255,0.95)');
     bodyGrad.addColorStop(0.5, 'rgba(0,140,200,0.9)');
     bodyGrad.addColorStop(1, 'rgba(0,80,160,0.85)');
+
+    // Dance body sway
+    const danceSway = isDancing ? Math.sin(model._dancePhase * 1.5) * 5 : 0;
+    ctx.save();
+    ctx.translate(danceSway, 0);
+
     ctx.beginPath();
     ctx.roundRect(-15, -28, 30, 38, 5);
     ctx.fillStyle = bodyGrad;
@@ -3020,7 +4001,9 @@ Events.on(render, 'afterRender', () => {
     }
 
     // Chest glow dot (status indicator)
-    const statusColor = hasItem ? 'rgba(255,200,0,0.9)' : isMoving ? 'rgba(0,255,150,0.9)' : 'rgba(100,200,255,0.7)';
+    const statusColor = hasItem ? 'rgba(255,200,0,0.9)' : isMoving ? 'rgba(0,255,150,0.9)' :
+                        isDancing ? 'rgba(255,80,220,0.9)' : isWaving ? 'rgba(255,255,100,0.9)' :
+                        'rgba(100,200,255,0.7)';
     ctx.beginPath();
     ctx.arc(0, -14, 4, 0, Math.PI * 2);
     ctx.fillStyle = statusColor;
@@ -3051,11 +4034,9 @@ Events.on(render, 'afterRender', () => {
       ctx.shadowBlur = 8;
       ctx.fill();
       ctx.shadowBlur = 0;
-
-      // Inner iris
       ctx.beginPath();
       ctx.arc(eye * 5, -46, 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = isMoving ? 'rgba(0,255,100,1)' : 'rgba(100,200,255,1)';
+      ctx.fillStyle = isMoving ? 'rgba(0,255,100,1)' : isDancing ? 'rgba(255,80,220,1)' : 'rgba(100,200,255,1)';
       ctx.fill();
     }
 
@@ -3075,48 +4056,70 @@ Events.on(render, 'afterRender', () => {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // === ARMS ===
-    const armSwing = walkCycle * 18;
-    // Left arm
+    // === LEFT ARM — raised when holding item or waving ===
     ctx.save();
     ctx.translate(-15, -20);
-    ctx.rotate((armSwing - 10) * Math.PI / 180);
+    let leftArmAngle;
+    if (hasItem) {
+      // Raise left arm up (holding item overhead)
+      leftArmAngle = (-90 - 10 + armRaise * -70) * Math.PI / 180;
+    } else if (isWaving) {
+      // Wave: oscillate up-raised
+      const waveSwing = Math.sin(model._waveAngle) * 25;
+      leftArmAngle = (-110 + waveSwing) * Math.PI / 180;
+    } else if (isDancing) {
+      leftArmAngle = (Math.sin(model._dancePhase * 2) * 55 - 20) * Math.PI / 180;
+    } else {
+      leftArmAngle = (walkCycle * 18 - 10) * Math.PI / 180;
+    }
+    ctx.rotate(leftArmAngle);
     ctx.beginPath();
     ctx.roundRect(-4, 0, 8, 22, 3);
     ctx.fillStyle = 'rgba(0,180,230,0.85)';
     ctx.fill();
-    // Hand
+    // Hand — gold when holding, yellow when waving, otherwise cyan
     ctx.beginPath();
     ctx.arc(0, 23, 5, 0, Math.PI * 2);
-    ctx.fillStyle = hasItem ? 'rgba(255,200,0,0.9)' : 'rgba(0,220,255,0.9)';
+    ctx.fillStyle = hasItem ? 'rgba(255,200,0,1)' : isWaving ? 'rgba(255,240,80,0.95)' : 'rgba(0,220,255,0.9)';
+    if (hasItem || isWaving) { ctx.shadowColor = hasItem ? 'rgba(255,200,0,0.8)' : 'rgba(255,220,0,0.7)'; ctx.shadowBlur = 10; }
     ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
 
-    // Right arm
+    // === RIGHT ARM — counter-swing ===
     ctx.save();
     ctx.translate(15, -20);
-    ctx.rotate((-armSwing + 10) * Math.PI / 180);
+    let rightArmAngle;
+    if (isDancing) {
+      rightArmAngle = (-Math.sin(model._dancePhase * 2) * 55 + 20) * Math.PI / 180;
+    } else if (hasItem) {
+      // Right arm partially raised for balance
+      rightArmAngle = (-armRaise * 30 + 10) * Math.PI / 180;
+    } else {
+      rightArmAngle = (-walkCycle * 18 + 10) * Math.PI / 180;
+    }
+    ctx.rotate(rightArmAngle);
     ctx.beginPath();
     ctx.roundRect(-4, 0, 8, 22, 3);
     ctx.fillStyle = 'rgba(0,180,230,0.85)';
     ctx.fill();
     ctx.beginPath();
     ctx.arc(0, 23, 5, 0, Math.PI * 2);
-    ctx.fillStyle = hasItem ? 'rgba(255,200,0,0.9)' : 'rgba(0,220,255,0.9)';
+    ctx.fillStyle = 'rgba(0,220,255,0.9)';
     ctx.fill();
     ctx.restore();
 
     // === LEGS ===
     const legSwing = walkCycle * 20;
+    const danceKick = isDancing ? Math.sin(model._dancePhase * 3) * 30 : 0;
     for (let leg = -1; leg <= 1; leg += 2) {
       ctx.save();
       ctx.translate(leg * 8, 10);
-      ctx.rotate((leg * legSwing) * Math.PI / 180);
+      ctx.rotate((leg * (legSwing + danceKick)) * Math.PI / 180);
       ctx.beginPath();
       ctx.roundRect(-5, 0, 10, 24, 3);
       ctx.fillStyle = 'rgba(0,140,200,0.9)';
       ctx.fill();
-      // Foot
       ctx.beginPath();
       ctx.roundRect(-6, 23, 12, 7, 2);
       ctx.fillStyle = 'rgba(0,100,180,0.95)';
@@ -3124,24 +4127,44 @@ Events.on(render, 'afterRender', () => {
       ctx.restore();
     }
 
+    ctx.restore(); // undo dance sway
+
+    // === HELD ITEM GLOW (outline above head) ===
+    if (hasItem && model.pickedUpBody) {
+      const glowPulse = 0.5 + Math.sin(now * 5) * 0.3;
+      ctx.beginPath();
+      ctx.arc(14 * dir, -72 - armRaise * 14, 16, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,220,60,${glowPulse})`;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = 'rgba(255,200,0,0.8)';
+      ctx.shadowBlur = 16;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
     // === Label above head ===
     ctx.save();
-    ctx.scale(1 / (scale * dir), 1 / scale); // undo scale for text
+    ctx.scale(1 / (scale * dir), 1 / scale);
     ctx.font = 'bold 10px "Segoe UI", sans-serif';
     ctx.fillStyle = 'rgba(180,255,255,0.85)';
     ctx.textAlign = 'center';
-    const stateLabel = model.modelState === 'idle' ? 'MODEL' :
-      model.modelState === 'moving' ? 'MOVING...' :
-      model.modelState === 'goto' ? `GOTO: ${model._gotoTarget ? model._gotoTarget.label : '?'}` :
-      model.modelState === 'pickup' ? `PICKUP: ${model._pickupTarget ? model._pickupTarget.label : '?'}` :
-      model.modelState === 'bring' ? 'BRINGING...' : 'MODEL';
-    ctx.fillText(stateLabel, 0, -78 * scale);
+    const stateLabel =
+      model.modelState === 'idle'       ? 'MODEL' :
+      model.modelState === 'moving'     ? 'MOVING…' :
+      model.modelState === 'goto'       ? `GOTO: ${model._gotoTarget ? model._gotoTarget.label : '?'}` :
+      model.modelState === 'pickup'     ? `PICKUP: ${model._pickupTarget ? model._pickupTarget.label : '?'}` :
+      model.modelState === 'bring'      ? '📦 DELIVERING…' :
+      model.modelState === 'waiting'    ? '⏳ WAITING…' :
+      model.modelState === 'dancing'    ? '🕺 DANCE!' :
+      model.modelState === 'patrolling' ? '👀 PATROL' :
+      model.modelState === 'following'  ? `🔍 FOLLOW: ${model._followTarget ? model._followTarget.label : '?'}` :
+      model.modelState === 'waving'     ? '👋 HI!' :
+      'MODEL';
+    ctx.fillText(stateLabel, 0, -84 * scale);
     ctx.restore();
 
     // === Footstep glow when moving ===
     if (isMoving) {
-      ctx.save();
-      ctx.scale(1, 1);
       const footGlow = ctx.createRadialGradient(0, 32, 0, 0, 32, 20);
       footGlow.addColorStop(0, `rgba(0,200,255,${0.3 + Math.abs(walkCycle) * 0.2})`);
       footGlow.addColorStop(1, 'rgba(0,200,255,0)');
@@ -3149,10 +4172,49 @@ Events.on(render, 'afterRender', () => {
       ctx.ellipse(0, 32, 20, 8, 0, 0, Math.PI * 2);
       ctx.fillStyle = footGlow;
       ctx.fill();
-      ctx.restore();
+    }
+
+    // === Dance sparkles ===
+    if (isDancing) {
+      for (let s = 0; s < 4; s++) {
+        const sa = model._dancePhase * 2.5 + (s / 4) * Math.PI * 2;
+        const sr = 30 + Math.sin(model._dancePhase * 3 + s) * 10;
+        const sx = Math.cos(sa) * sr;
+        const sy = Math.sin(sa) * sr - 20;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+        const scol = ['rgba(255,80,220,0.8)', 'rgba(80,220,255,0.8)', 'rgba(255,220,0,0.8)', 'rgba(120,255,120,0.8)'][s];
+        ctx.fillStyle = scol;
+        ctx.shadowColor = scol;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
     }
 
     ctx.restore();
+
+    // === Drop effect (rendered in world space, not model-local) ===
+    if (model._dropEffect) {
+      const de = model._dropEffect;
+      de.age++;
+      const dp = de.age / de.maxAge;
+      if (dp < 1) {
+        for (let ds = 0; ds < 6; ds++) {
+          const da = (ds / 6) * Math.PI * 2 + dp * 3;
+          const dr = dp * 28;
+          ctx.beginPath();
+          ctx.arc(de.x + Math.cos(da) * dr, de.y + Math.sin(da) * dr, 3 * (1 - dp), 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,200,60,${0.8 * (1 - dp)})`;
+          ctx.shadowColor = 'rgba(255,180,0,0.6)';
+          ctx.shadowBlur = 8;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      } else {
+        model._dropEffect = null;
+      }
+    }
   }
 });
 
@@ -3168,14 +4230,12 @@ function fireSummonAI(encoder) {
   const spawnX = mouse.position.x;
   const spawnY = mouse.position.y;
 
-  // Visual: change encoder texture/glow to purple "active" state
   encoder._summonActive = true;
   setTimeout(() => { encoder._summonActive = false; }, 2000);
 
-  // Show feedback
-  document.getElementById('console-feedback').textContent = `⚡ Summoning Model at (${spawnX|0}, ${spawnY|0}) with ${commands.length} command(s)…`;
+  document.getElementById('console-feedback').textContent =
+    `⚡ Summoning Model at (${spawnX|0}, ${spawnY|0}) with ${commands.length} command(s)…`;
 
-  // Fire summon animation, spawn model on completion
   createSummonAnimation(spawnX, spawnY, () => {
     spawnModel(spawnX, spawnY, commands, encoder);
   });
@@ -3185,34 +4245,82 @@ function fireSummonAI(encoder) {
 (function addSummonAIAutofill() {
   const autofillDiv = document.getElementById('console-autofill');
   if (!autofillDiv) return;
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'autofill-btn';
-  btn.textContent = '.summonai(){ m.move(200) }';
-  btn.style.background = 'rgba(120,60,255,0.12)';
-  btn.style.borderColor = 'rgba(160,80,255,0.4)';
-  btn.style.color = '#c8a2ff';
-  btn.addEventListener('click', () => {
-    const input = document.getElementById('encoder-console-input');
-    if (!input) return;
-    input.value = '.summonai(){\n  m.goto(Box)\n  m.pickup(Box)\n  m.bring()\n}';
-    input.focus();
+
+  // Multiple preset buttons for different scenarios
+  const presets = [
+    {
+      label: '🤖 Fetch & Deliver',
+      color: '#c8a2ff', bg: 'rgba(120,60,255,0.12)', border: 'rgba(160,80,255,0.4)',
+      code: '.summonai(){\n  m.goto(Box)\n  m.pickup(Box)\n  m.bring()\n}'
+    },
+    {
+      label: '👋 Wave & Patrol',
+      color: '#80ffdf', bg: 'rgba(0,180,120,0.1)', border: 'rgba(0,220,160,0.35)',
+      code: '.summonai(){\n  m.wave()\n  m.patrol(200)\n}'
+    },
+    {
+      label: '🕺 Dance & Drop',
+      color: '#ff80ea', bg: 'rgba(200,60,180,0.1)', border: 'rgba(220,80,200,0.35)',
+      code: '.summonai(){\n  m.pickup(Ball)\n  m.dance()\n  m.drop()\n}'
+    },
+    {
+      label: '🔍 Follow Target',
+      color: '#80d4ff', bg: 'rgba(0,120,200,0.1)', border: 'rgba(0,160,240,0.35)',
+      code: '.summonai(){\n  m.follow(Ball)\n}'
+    },
+    {
+      label: '⏳ Move & Wait',
+      color: '#ffd080', bg: 'rgba(180,120,0,0.1)', border: 'rgba(220,160,0,0.35)',
+      code: '.summonai(){\n  m.move(200)\n  m.wait(1500)\n  m.move(-200)\n}'
+    }
+  ];
+
+  presets.forEach(preset => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'autofill-btn';
+    btn.textContent = preset.label;
+    btn.style.background = preset.bg;
+    btn.style.borderColor = preset.border;
+    btn.style.color = preset.color;
+    btn.style.marginBottom = '3px';
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('encoder-console-input');
+      if (!input) return;
+      input.value = preset.code;
+      input.focus();
+    });
+    autofillDiv.appendChild(btn);
   });
-  autofillDiv.appendChild(btn);
 
   // Inject summonai section into the console guide
   const guide = document.querySelector('.console-guide');
   if (guide) {
     const modelSection = document.createElement('div');
-    modelSection.style.cssText = 'margin-bottom:10px;padding:8px;background:rgba(120,60,255,0.07);border-left:2px solid rgba(160,80,255,0.5);border-radius:6px;';
+    modelSection.style.cssText = `
+      margin-bottom:10px;padding:10px;
+      background:rgba(120,60,255,0.07);
+      border-left:2px solid rgba(160,80,255,0.5);
+      border-radius:6px;
+      line-height:1.7;
+    `;
     modelSection.innerHTML = `
-      <strong style="color:#c084fc;font-size:12px">🤖 MODEL (SUMMONAI)</strong><br>
+      <strong style="color:#c084fc;font-size:12px;display:block;margin-bottom:4px">🤖 MODEL — SUMMONAI v2</strong>
       <code>.summonai(){ commands }</code> — summon AI entity<br>
-      <code>m.move(px)</code> — move by pixels (±)<br>
-      <code>m.goto(label)</code> — walk to named object<br>
-      <code>m.pickup(label)</code> — walk to & lift object<br>
-      <code>m.bring()</code> — carry item back to encoder<br>
-      <span style="font-size:11px;opacity:0.75">Press <strong>M</strong> to summon at mouse pointer.</span>
+      <code>m.move(px)</code> — move ± pixels<br>
+      <code>m.goto(label)</code> — walk to object<br>
+      <code>m.pickup(label)</code> — lift object (raises arm)<br>
+      <code>m.bring()</code> — deliver to Encoder (auto-drops on approach)<br>
+      <code>m.drop()</code> — drop held item<br>
+      <code>m.wait(ms)</code> — pause execution<br>
+      <code>m.dance()</code> — perform dance routine<br>
+      <code>m.patrol(px)</code> — pace back & forth<br>
+      <code>m.follow(label)</code> — track an object<br>
+      <code>m.wave()</code> — wave animation<br>
+      <span style="font-size:11px;opacity:0.75;margin-top:4px;display:block">
+        🟡 Model auto-drops items when near an Encoder.<br>
+        Press <strong>M</strong> to summon at mouse position.
+      </span>
     `;
     guide.insertBefore(modelSection, guide.firstChild.nextSibling);
   }
@@ -3228,7 +4336,6 @@ function fireSummonAI(encoder) {
   item.setAttribute('data-type', 'model');
   item.textContent = '🤖 Model';
   objectsTab.insertBefore(item, objectsTab.querySelector('div[style]'));
-
   item.addEventListener('dragstart', ev => {
     ev.dataTransfer.setData('text/plain', 'model');
   });
@@ -3238,7 +4345,6 @@ function fireSummonAI(encoder) {
 const _origSpawnFromType = spawnFromType;
 window.spawnFromType = function(type, x, y) {
   if (type === 'model') {
-    // Spawn a model directly (idle, no commands)
     createSummonAnimation(x, y, () => {
       spawnModel(x, y, [], null);
     });
@@ -3248,8 +4354,6 @@ window.spawnFromType = function(type, x, y) {
 }
 
 // Override the canvas drop listener to use the new spawnFromType
-// (The existing drop listener calls spawnFromType which is now patched via window.spawnFromType)
-// We need to make the drop call the patched version:
 canvas.addEventListener('drop', ev => {
   const type = ev.dataTransfer.getData('text/plain');
   if (type === 'model') {
